@@ -8,8 +8,14 @@ app.listen(3000, () => console.log('Server Ready'));
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
     ]
+});
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -23,6 +29,3 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
-
-
