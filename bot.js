@@ -22,5 +22,6 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
-client.login('MTU0MjQzMzk1NTM1NjA4MjIxOA.GYREpX.TbvjXezA4EIElrXwvJMW642GbjIpiFzUDRri_o');
+client.login(process.env.DISCORD_TOKEN);
+
 
