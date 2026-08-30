@@ -30,7 +30,7 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
-const LOG_CHANNEL_ID = 'YOUR_TICKET_LOGS_CHANNEL_ID'; // ⚠️ നിങ്ങളുടെ Staff Ticket Log Channel ID ഇവിടെ കൊടുക്കുക
+const LOG_CHANNEL_ID = '1543481103866929223'; // ⚠️ നിങ്ങളുടെ Staff Ticket Log Channel ID ഇവിടെ കൊടുക്കുക
 
 const CATEGORIES = {
     FRP: '1543445649520070787',
