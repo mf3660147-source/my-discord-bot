@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
 
@@ -30,7 +30,7 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
-const LOG_CHANNEL_ID = '1543481103866929223'; // ⚠️ നിങ്ങളുടെ Staff Ticket Log Channel ID ഇവിടെ കൊടുക്കുക
+const LOG_CHANNEL_ID = '1543481103866929223'; 
 
 const CATEGORIES = {
     FRP: '1543445649520070787',
@@ -104,7 +104,26 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+    // Modal submit - Rename Handle
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'rename_ticket_modal') {
+            const newName = interaction.fields.getTextInputValue('new_ticket_name');
+            try {
+                await interaction.channel.setName(newName);
+                await interaction.reply({ content: `✅ Ticket renamed to **${newName}**`, ephemeral: true });
+            } catch (err) {
+                console.error('Rename Error:', err);
+                await interaction.reply({ content: '❌ Failed to rename channel. Check bot permissions.', ephemeral: true });
+            }
+        }
+        return;
+    }
+
     if (!interaction.isButton()) return;
+
+    // Staff/Admin Check (Citizens റോളിന് മുകളിലുള്ളവർ)
+    const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
+                    interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
 
     const configMap = {
         'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP },
@@ -119,8 +138,20 @@ client.on('interactionCreate', async (interaction) => {
 
     if (selectedConfig) {
         try {
+            const userTickets = interaction.guild.channels.cache.filter(c => 
+                c.name.startsWith('ticket-') && 
+                c.permissionsFor(interaction.user.id)?.has(PermissionFlagsBits.ViewChannel)
+            );
+
+            if (userTickets.size >= 2) {
+                return await interaction.reply({ 
+                    content: '❌ **You can only have a maximum of 2 open tickets at the same time!**', 
+                    ephemeral: true 
+                });
+            }
+
             const ticketNumber = Math.floor(1000 + Math.random() * 9000);
-            const channelName = `${selectedConfig.name.toLowerCase().replace(/\s+/g, '-')}-${interaction.user.username}`;
+            const channelName = `ticket-${ticketNumber}`;
 
             const channelOptions = {
                 name: channelName,
@@ -146,13 +177,14 @@ client.on('interactionCreate', async (interaction) => {
             const ticketEmbed = new EmbedBuilder()
                 .setColor('#E6A100')
                 .setTitle(`✨ Ticket #${ticketNumber}`)
-                .setDescription(`🏷️ **Category:** \`${selectedConfig.name}\`\n👤 **Owner:** <@${interaction.user.id}>\n🛠️ **Status:** \`Not Claimed\`\n\n-------------------------\n📨 **Please state your issue or query clearly.**\nAttach any screenshots or proof if necessary.\n-------------------------`)
+                .setDescription(`🏷️ **Category:** \`${selectedConfig.name}\`\n👤 **Owner:** <@${interaction.user.id}>\n🛠️ **Status:** \`Not Claimed\`\n\n-------------------------\n📨 **Please state your issue clearly.**\n-------------------------`)
                 .setFooter({ text: 'ONE PEACE ROLEPLAY Support Team' })
                 .setTimestamp();
 
             const controlButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
                 new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('rename_ticket').setLabel('Rename').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
             );
 
@@ -162,27 +194,52 @@ client.on('interactionCreate', async (interaction) => {
                 components: [controlButtons]
             });
 
-            await interaction.reply({ content: `Your ticket has been created successfully: ${channel}`, ephemeral: true });
+            await interaction.reply({ content: `Your ticket has been created: ${channel}`, ephemeral: true });
         } catch (err) {
             console.error('Ticket Creation Error:', err);
-            await interaction.reply({ content: 'Error creating ticket. Please check bot permissions.', ephemeral: true });
+            await interaction.reply({ content: 'Error creating ticket.', ephemeral: true });
         }
     }
 
     if (interaction.customId === 'claim_ticket') {
-        await interaction.reply({ content: `✅ This ticket has been claimed by <@${interaction.user.id}>!` });
+        if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can claim tickets!**', ephemeral: true });
+        await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>!` });
     }
 
     if (interaction.customId === 'unclaim_ticket') {
-        await interaction.reply({ content: `⚠️ Ticket has been unclaimed!` });
+        if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can unclaim tickets!**', ephemeral: true });
+        await interaction.reply({ content: `⚠️ Ticket unclaimed!` });
+    }
+
+    if (interaction.customId === 'rename_ticket') {
+        if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can rename tickets!**', ephemeral: true });
+
+        const modal = new ModalBuilder().setCustomId('rename_ticket_modal').setTitle('Rename Ticket');
+        const nameInput = new TextInputBuilder()
+            .setCustomId('new_ticket_name')
+            .setLabel('Enter new channel name')
+            .setStyle(TextInputStyle.Short)
+            .setValue(interaction.channel.name)
+            .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(nameInput));
+        await interaction.showModal(modal);
     }
 
     if (interaction.customId === 'close_ticket') {
+        // Citizens റോളിന് മുകളിലുള്ള റോൾ (Manage Channels / Admin) ഇല്ലെങ്കിൽ ക്ലോസ് ചെയ്യാൻ സാധിക്കില്ല
+        if (!isStaff) {
+            return await interaction.reply({ 
+                content: '❌ **Citizens cannot close tickets! Only Staff/Admins can close this ticket.**', 
+                ephemeral: true 
+            });
+        }
+
         await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
 
         try {
-            // 1. Generate HTML Transcript
-            const file = await discordTranscripts.createTranscript(interaction.channel, {
+            // ട്രാൻസ്ക്രിപ്റ്റ് നിർമ്മിക്കുന്നു
+            const attachment = await discordTranscripts.createTranscript(interaction.channel, {
                 limit: -1,
                 returnType: 'attachment',
                 filename: `${interaction.channel.name}-transcript.html`,
@@ -190,22 +247,22 @@ client.on('interactionCreate', async (interaction) => {
                 poweredBy: false
             });
 
-            // 2. Send transcript file to Staff Log Channel
-            const logChannel = interaction.guild.channels.cache.get(1543481103866929223);
+            // തന്ന ലോഗ് ചാനലിലേക്ക് ട്രാൻസ്ക്രിപ്റ്റ് ഫയൽ അയക്കുന്നു
+            const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 await logChannel.send({
-                    content: `📜 **Transcript for ${interaction.channel.name}**\nClosed by: <@${interaction.user.id}>`,
-                    files: [file]
+                    content: `📜 **Transcript Log for \`#${interaction.channel.name}\`**\n📌 **Closed By:** <@${interaction.user.id}>`,
+                    files: [attachment]
                 });
+            } else {
+                console.error(`Log channel not found! Check ID: ${LOG_CHANNEL_ID}`);
             }
         } catch (err) {
-            console.error('Transcript Generation Error:', err);
+            console.error('Transcript Log Error:', err);
         }
 
-        // 3. Delete channel after 5 seconds
-        setTimeout(() => interaction.channel.delete(), 5000);
+        setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
     }
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
