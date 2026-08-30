@@ -28,7 +28,7 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
-const BANNER_IMAGE = 'https://kommodo.ai/i/C1yy9cvJzVxRkvCLI1RB'; 
+const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
 
 const CATEGORIES = {
         FRP: '1543445649520070787',
