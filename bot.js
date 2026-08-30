@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
+const discordTranscripts = require('discord-html-transcripts');
 
 const app = express();
 app.get('/', (req, res) => res.send('ONE PEACE ROLEPLAY Bot is Online!'));
@@ -29,9 +30,10 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
+const LOG_CHANNEL_ID = 'YOUR_TICKET_LOGS_CHANNEL_ID'; // ⚠️ നിങ്ങളുടെ Staff Ticket Log Channel ID ഇവിടെ കൊടുക്കുക
 
 const CATEGORIES = {
-        FRP: '1543445649520070787',
+    FRP: '1543445649520070787',
     GANG_FRP: '1543445685066666115',
     HELP: '1543449176476745910',
     FACTION_APP: '1543445813546451035',
@@ -176,9 +178,34 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'close_ticket') {
-        await interaction.reply('🔒 Closing and deleting this ticket in 5 seconds...');
+        await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
+
+        try {
+            // 1. Generate HTML Transcript
+            const file = await discordTranscripts.createTranscript(interaction.channel, {
+                limit: -1,
+                returnType: 'attachment',
+                filename: `${interaction.channel.name}-transcript.html`,
+                saveImages: true,
+                poweredBy: false
+            });
+
+            // 2. Send transcript file to Staff Log Channel
+            const logChannel = interaction.guild.channels.cache.get(1543481103866929223);
+            if (logChannel) {
+                await logChannel.send({
+                    content: `📜 **Transcript for ${interaction.channel.name}**\nClosed by: <@${interaction.user.id}>`,
+                    files: [file]
+                });
+            }
+        } catch (err) {
+            console.error('Transcript Generation Error:', err);
+        }
+
+        // 3. Delete channel after 5 seconds
         setTimeout(() => interaction.channel.delete(), 5000);
     }
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
