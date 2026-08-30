@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
 
 const app = express();
@@ -53,12 +53,8 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
 
     if (interaction.customId === 'create_ticket') {
-        const channelName = `ticket-${interaction.user.username}`;
-        
-        const existingChannel = interaction.guild.channels.cache.find(c => c.name === channelName);
-        if (existingChannel) {
-            return interaction.reply({ content: 'You already have an open ticket!', ephemeral: true });
-        }
+        const ticketNumber = Math.floor(1000 + Math.random() * 9000);
+        const channelName = `ticket-${ticketNumber}`;
 
         const channel = await interaction.guild.channels.create({
             name: channelName,
@@ -75,19 +71,36 @@ client.on('interactionCreate', async (interaction) => {
             ],
         });
 
-        const closeButton = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('close_ticket')
-                .setLabel('🔒 Close Ticket')
-                .setStyle(ButtonStyle.Danger)
+        // Embed Message Creation
+        const ticketEmbed = new EmbedBuilder()
+            .setColor('#E6A100')
+            .setTitle(`✨ Ticket #${ticketNumber}`)
+            .setDescription(`🏷️ **Category:** \`HELP\`\n👤 **Owner:** <@${interaction.user.id}>\n🛠️ **Status:** \`Not Claimed\`\n\n-------------------------\n📨 **Please describe your issue clearly**\nAttach screenshots or proof if possible.\n-------------------------`)
+            .setFooter({ text: `Our staff will assist shortly` })
+            .setTimestamp();
+
+        // Control Buttons
+        const buttonsRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
         );
 
         await channel.send({
-            content: `Hello <@${interaction.user.id}>, please describe your issue or query here.`,
-            components: [closeButton]
+            content: `<@${interaction.user.id}>`,
+            embeds: [ticketEmbed],
+            components: [buttonsRow]
         });
 
         await interaction.reply({ content: `Your ticket has been created: ${channel}`, ephemeral: true });
+    }
+
+    if (interaction.customId === 'claim_ticket') {
+        await interaction.reply({ content: `Ticket claimed by <@${interaction.user.id}>!`, ephemeral: false });
+    }
+
+    if (interaction.customId === 'unclaim_ticket') {
+        await interaction.reply({ content: `Ticket has been unclaimed!`, ephemeral: false });
     }
 
     if (interaction.customId === 'close_ticket') {
