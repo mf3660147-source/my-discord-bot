@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "bot.js",
   "dependencies": {
+    "discord-html-transcripts": "^3.2.0",
     "discord.js": "^14.14.1",
     "express": "^4.18.2"
   },
@@ -10,4 +11,3 @@
     "start": "node bot.js"
   }
 }
-
