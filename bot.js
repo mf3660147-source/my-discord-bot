@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
 
@@ -15,8 +15,32 @@ const client = new Client({
     ]
 });
 
-client.once('ready', () => {
+// അറ്റൻഡൻസ് സൂക്ഷിക്കുന്ന മെമ്മറി
+const attendanceData = new Map(); // userId -> totalCount
+const dailyLogs = new Map(); // userId -> lastDate
+
+const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; // നിങ്ങൾ തന്ന ചാനൽ ഐഡി
+
+client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
+
+    // Slash Command Register ചെയ്യൽ (/attendance-leaderboard)
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('attendance-leaderboard')
+            .setDescription('Shows the staff attendance leaderboard')
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands }
+        );
+        console.log('Attendance Slash commands registered successfully!');
+    } catch (error) {
+        console.error('Slash Command Error:', error);
+    }
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -98,13 +122,38 @@ client.on('messageCreate', async (message) => {
             );
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
+
+        // --- STAFF ATTENDANCE SETUP COMMAND ---
+        if (message.content === '!setup-attendance') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return message.reply('❌ Only admins can setup attendance!');
+            }
+
+            const today = new Date().toISOString().split('T')[0];
+            const embed = new EmbedBuilder()
+                .setTitle('📋 Staff Attendance Panel')
+                .setDescription(`Click the button below to mark your attendance for **${today}**.`)
+                .setColor('#10b981')
+                .setFooter({ text: 'ONE PEACE ROLEPLAY Attendance System' });
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('mark_attendance_btn')
+                    .setLabel('Mark Attendance')
+                    .setStyle(ButtonStyle.Success)
+            );
+
+            await message.channel.send({ embeds: [embed], components: [row] });
+            await message.delete().catch(() => {});
+        }
+
     } catch (err) {
         console.error('Command Execution Error:', err);
     }
 });
 
 client.on('interactionCreate', async (interaction) => {
-    // Modal submit - Rename Handle
+    // 1. Modal submit - Rename Handle
     if (interaction.isModalSubmit()) {
         if (interaction.customId === 'rename_ticket_modal') {
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
@@ -119,9 +168,71 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // 2. Attendance Leaderboard Slash Command
+    if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
+        if (attendanceData.size === 0) {
+            return interaction.reply({ content: '❌ ഇതുവരെ ആരും അറ്റൻഡൻസ് രേഖപ്പെടുത്തിയിട്ടില്ല.', ephemeral: true });
+        }
+
+        const sorted = Array.from(attendanceData.entries()).sort((a, b) => b[1] - a[1]);
+        let leaderboardText = sorted.map(([user, count], index) => {
+            return `**#${index + 1}** <@${user}> — **${count} Days**`;
+        }).join('\n');
+
+        const lbEmbed = new EmbedBuilder()
+            .setTitle('🏆 Staff Attendance Leaderboard')
+            .setDescription(leaderboardText)
+            .setColor('#f59e0b')
+            .setFooter({ text: 'ONE PEACE ROLEPLAY Staff Team' })
+            .setTimestamp();
+
+        return await interaction.reply({ embeds: [lbEmbed] });
+    }
+
     if (!interaction.isButton()) return;
 
-    // Staff/Admin Check (Citizens റോളിന് മുകളിലുള്ളവർ)
+    // --- ATTENDANCE BUTTON CLICK HANDLE ---
+    if (interaction.customId === 'mark_attendance_btn') {
+        const userId = interaction.user.id;
+        const today = new Date().toISOString().split('T')[0];
+
+        // ഇന്നത്തെ ദിവസം അറ്റൻഡൻസ് ഇട്ടിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു
+        if (dailyLogs.get(userId) === today) {
+            return await interaction.reply({ 
+                content: '❌ നിങ്ങൾ ഇന്നത്തെ അറ്റൻഡൻസ് നേരത്തെ രേഖപ്പെടുത്തിയിട്ടുണ്ട്!', 
+                ephemeral: true 
+            });
+        }
+
+        // അറ്റൻഡൻസ് കൗണ്ട് അപ്‌ഡേറ്റ് ചെയ്യൽ
+        dailyLogs.set(userId, today);
+        const currentCount = (attendanceData.get(userId) || 0) + 1;
+        attendanceData.set(userId, currentCount);
+
+        await interaction.reply({ 
+            content: `✅ നിങ്ങളുടെ അറ്റൻഡൻസ് ഇന്ന് (${today}) രേഖപ്പെടുത്തിയിരിക്കുന്നു! (Total: ${currentCount} Days)`, 
+            ephemeral: true 
+        });
+
+        // ലോഗ് ചാനലിലേക്ക് അറ്റൻഡൻസ് വിവരം അയക്കൽ
+        const logChannel = await interaction.guild.channels.fetch(ATTENDANCE_LOG_CHANNEL_ID).catch(() => null);
+        if (logChannel) {
+            const logEmbed = new EmbedBuilder()
+                .setTitle('📌 Staff Attendance Logged')
+                .setColor('#10b981')
+                .addFields(
+                    { name: 'Staff Member', value: `<@${userId}>`, inline: true },
+                    { name: 'Date', value: today, inline: true },
+                    { name: 'Total Attendance', value: `${currentCount} Days`, inline: true }
+                )
+                .setTimestamp();
+
+            await logChannel.send({ embeds: [logEmbed] });
+        }
+        return;
+    }
+
+    // Staff/Admin Check
     const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
                     interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
 
@@ -227,7 +338,6 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'close_ticket') {
-        // Citizens റോളിന് മുകളിലുള്ള റോൾ (Manage Channels / Admin) ഇല്ലെങ്കിൽ ക്ലോസ് ചെയ്യാൻ സാധിക്കില്ല
         if (!isStaff) {
             return await interaction.reply({ 
                 content: '❌ **Citizens cannot close tickets! Only Staff/Admins can close this ticket.**', 
@@ -238,7 +348,6 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
 
         try {
-            // ട്രാൻസ്ക്രിപ്റ്റ് നിർമ്മിക്കുന്നു
             const attachment = await discordTranscripts.createTranscript(interaction.channel, {
                 limit: -1,
                 returnType: 'attachment',
@@ -247,7 +356,6 @@ client.on('interactionCreate', async (interaction) => {
                 poweredBy: false
             });
 
-            // തന്ന ലോഗ് ചാനലിലേക്ക് ട്രാൻസ്ക്രിപ്റ്റ് ഫയൽ അയക്കുന്നു
             const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 await logChannel.send({
