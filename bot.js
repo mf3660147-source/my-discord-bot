@@ -19,11 +19,11 @@ const client = new Client({
 const attendanceData = new Map(); // userId -> totalCount
 const dailyLogs = new Map(); // userId -> lastDate
 
-// ടിക്കറ്റ് കൗണ്ടറുകൾ സൂക്ഷിക്കൽ
-let totalClosedTickets = 0; // മൊത്തം ക്ലോസ് ചെയ്ത ടിക്കറ്റുകളുടെ എണ്ണം
+// ടിക്കറ്റ് വിവരങ്ങൾ സൂക്ഷിക്കൽ
+let totalClosedTickets = 0; 
 
 const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
-const LOG_CHANNEL_ID = '1542216463929311339'; // നിങ്ങൾ തന്ന പുതിയ ട്രാൻസ്ക്രിപ്റ്റ് ചാനൽ ഐഡി
+const LOG_CHANNEL_ID = '1542216463929311339'; 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
 
 const CATEGORIES = {
@@ -32,13 +32,13 @@ const CATEGORIES = {
     HELP: '1543449176476745910',
     FACTION_APP: '1543445813546451035',
     GANG_APP: '1543445864230555658',
-    VIP: '1543445898875371600'
+    VIP: '1543445898875371600',
+    ADMIN_APP: '1544379259525537922'
 };
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
 
-    // Slash Command Register ചെയ്യൽ (/attendance-leaderboard)
     const commands = [
         new SlashCommandBuilder()
             .setName('attendance-leaderboard')
@@ -121,6 +121,20 @@ client.on('messageCreate', async (message) => {
 
             const buttons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('ticket_vip').setLabel('VIP Ticket').setStyle(ButtonStyle.Danger)
+            );
+            await message.channel.send({ embeds: [embed], components: [buttons] });
+        }
+
+        // --- ADMIN APPLICATION SETUP COMMAND ---
+        if (message.content === '!setup-admin') {
+            const embed = new EmbedBuilder()
+                .setTitle('👑 Admin Application')
+                .setDescription('Click the button below to submit your Admin Application.')
+                .setImage(BANNER_IMAGE)
+                .setColor('#6366f1');
+
+            const buttons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('ticket_admin_app').setLabel('Admin Application').setStyle(ButtonStyle.Primary)
             );
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
@@ -241,7 +255,8 @@ client.on('interactionCreate', async (interaction) => {
         'ticket_help': { name: 'Help', categoryId: CATEGORIES.HELP },
         'ticket_faction_app': { name: 'Faction Application', categoryId: CATEGORIES.FACTION_APP },
         'ticket_gang_app': { name: 'Gang Application', categoryId: CATEGORIES.GANG_APP },
-        'ticket_vip': { name: 'VIP', categoryId: CATEGORIES.VIP }
+        'ticket_vip': { name: 'VIP', categoryId: CATEGORIES.VIP },
+        'ticket_admin_app': { name: 'Admin Application', categoryId: CATEGORIES.ADMIN_APP }
     };
 
     const selectedConfig = configMap[interaction.customId];
@@ -278,7 +293,7 @@ client.on('interactionCreate', async (interaction) => {
                 ],
             };
 
-            if (selectedConfig.categoryId && !selectedConfig.categoryId.startsWith('YOUR_') && selectedConfig.categoryId.length > 10) {
+            if (selectedConfig.categoryId && selectedConfig.categoryId.length > 10) {
                 channelOptions.parent = selectedConfig.categoryId;
             }
 
@@ -347,25 +362,30 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
 
         try {
-            // 1. ഫസ്റ്റ് മെസ്സേജിലെ വിവരങ്ങളിൽ നിന്ന് ടിക്കറ്റ് ഉടമസ്ഥനെയും കാറ്റഗറിയെയും കണ്ടെത്തുന്നു
-            const messages = await interaction.channel.messages.fetch({ limit: 10, oldest: true });
-            const firstMsg = messages.first();
             let ticketOwner = 'Unknown';
-            let categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
+            const nonStaffPermissions = interaction.channel.permissionOverwrites.cache.find(
+                p => p.type === 1 && p.id !== client.user.id && p.id !== interaction.guild.roles.everyone.id
+            );
 
-            if (firstMsg && firstMsg.embeds.length > 0) {
-                const description = firstMsg.embeds[0].description || '';
-                const ownerMatch = description.match(/👤 \*\*Owner:\*\* <@(\d+)>/);
-                const categoryMatch = description.match(/🏷️ \*\*Category:\*\* `([^`]+)`/);
-
-                if (ownerMatch) ticketOwner = `<@${ownerMatch[1]}>`;
-                if (categoryMatch) categoryName = categoryMatch[1];
+            if (nonStaffPermissions) {
+                ticketOwner = `<@${nonStaffPermissions.id}>`;
+            } else {
+                const messages = await interaction.channel.messages.fetch({ limit: 10, oldest: true });
+                const firstMsg = messages.first();
+                if (firstMsg) {
+                    if (firstMsg.mentions.users.first()) {
+                        ticketOwner = `<@${firstMsg.mentions.users.first().id}>`;
+                    } else if (firstMsg.embeds.length > 0) {
+                        const description = firstMsg.embeds[0].description || '';
+                        const ownerMatch = description.match(/<@!?(\d+)>/);
+                        if (ownerMatch) ticketOwner = `<@${ownerMatch[1]}>`;
+                    }
+                }
             }
 
-            // 2. മൊത്തം ക്ലോസ് ചെയ്ത ടിക്കറ്റുകളുടെ എണ്ണം ഒന്നു കൂട്ടുന്നു
+            const categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
             totalClosedTickets += 1;
 
-            // 3. ട്രാൻസ്ക്രിപ്റ്റ് ഉണ്ടാക്കുന്നു
             const attachment = await discordTranscripts.createTranscript(interaction.channel, {
                 limit: -1,
                 returnType: 'attachment',
@@ -374,7 +394,6 @@ client.on('interactionCreate', async (interaction) => {
                 poweredBy: false
             });
 
-            // 4. ട്രാൻസ്ക്രിപ്റ്റ് ചാനലിലേക്ക് പുതിയ എമ്പെഡ് സഹിതം ലോഗ് അയക്കുന്നു
             const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 const closeEmbed = new EmbedBuilder()
@@ -394,8 +413,6 @@ client.on('interactionCreate', async (interaction) => {
                     embeds: [closeEmbed],
                     files: [attachment]
                 });
-            } else {
-                console.error(`Log channel not found! Check ID: ${LOG_CHANNEL_ID}`);
             }
         } catch (err) {
             console.error('Transcript Log Error:', err);
