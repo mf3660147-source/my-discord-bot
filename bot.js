@@ -19,7 +19,21 @@ const client = new Client({
 const attendanceData = new Map(); // userId -> totalCount
 const dailyLogs = new Map(); // userId -> lastDate
 
-const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; // നിങ്ങൾ തന്ന ചാനൽ ഐഡി
+// ടിക്കറ്റ് കൗണ്ടറുകൾ സൂക്ഷിക്കൽ
+let totalClosedTickets = 0; // മൊത്തം ക്ലോസ് ചെയ്ത ടിക്കറ്റുകളുടെ എണ്ണം
+
+const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
+const LOG_CHANNEL_ID = '1542216463929311339'; // നിങ്ങൾ തന്ന പുതിയ ട്രാൻസ്ക്രിപ്റ്റ് ചാനൽ ഐഡി
+const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
+
+const CATEGORIES = {
+    FRP: '1543445649520070787',
+    GANG_FRP: '1543445685066666115',
+    HELP: '1543449176476745910',
+    FACTION_APP: '1543445813546451035',
+    GANG_APP: '1543445864230555658',
+    VIP: '1543445898875371600'
+};
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
@@ -52,18 +66,6 @@ client.on('guildMemberAdd', async (member) => {
         console.error('Auto-role Error:', err);
     }
 });
-
-const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
-const LOG_CHANNEL_ID = '1543481103866929223'; 
-
-const CATEGORIES = {
-    FRP: '1543445649520070787',
-    GANG_FRP: '1543445685066666115',
-    HELP: '1543449176476745910',
-    FACTION_APP: '1543445813546451035',
-    GANG_APP: '1543445864230555658',
-    VIP: '1543445898875371600'
-};
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
@@ -196,7 +198,6 @@ client.on('interactionCreate', async (interaction) => {
         const userId = interaction.user.id;
         const today = new Date().toISOString().split('T')[0];
 
-        // ഇന്നത്തെ ദിവസം അറ്റൻഡൻസ് ഇട്ടിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു
         if (dailyLogs.get(userId) === today) {
             return await interaction.reply({ 
                 content: '❌ നിങ്ങൾ ഇന്നത്തെ അറ്റൻഡൻസ് നേരത്തെ രേഖപ്പെടുത്തിയിട്ടുണ്ട്!', 
@@ -204,7 +205,6 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // അറ്റൻഡൻസ് കൗണ്ട് അപ്‌ഡേറ്റ് ചെയ്യൽ
         dailyLogs.set(userId, today);
         const currentCount = (attendanceData.get(userId) || 0) + 1;
         attendanceData.set(userId, currentCount);
@@ -214,7 +214,6 @@ client.on('interactionCreate', async (interaction) => {
             ephemeral: true 
         });
 
-        // ലോഗ് ചാനലിലേക്ക് അറ്റൻഡൻസ് വിവരം അയക്കൽ
         const logChannel = await interaction.guild.channels.fetch(ATTENDANCE_LOG_CHANNEL_ID).catch(() => null);
         if (logChannel) {
             const logEmbed = new EmbedBuilder()
@@ -348,6 +347,25 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
 
         try {
+            // 1. ഫസ്റ്റ് മെസ്സേജിലെ വിവരങ്ങളിൽ നിന്ന് ടിക്കറ്റ് ഉടമസ്ഥനെയും കാറ്റഗറിയെയും കണ്ടെത്തുന്നു
+            const messages = await interaction.channel.messages.fetch({ limit: 10, oldest: true });
+            const firstMsg = messages.first();
+            let ticketOwner = 'Unknown';
+            let categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
+
+            if (firstMsg && firstMsg.embeds.length > 0) {
+                const description = firstMsg.embeds[0].description || '';
+                const ownerMatch = description.match(/👤 \*\*Owner:\*\* <@(\d+)>/);
+                const categoryMatch = description.match(/🏷️ \*\*Category:\*\* `([^`]+)`/);
+
+                if (ownerMatch) ticketOwner = `<@${ownerMatch[1]}>`;
+                if (categoryMatch) categoryName = categoryMatch[1];
+            }
+
+            // 2. മൊത്തം ക്ലോസ് ചെയ്ത ടിക്കറ്റുകളുടെ എണ്ണം ഒന്നു കൂട്ടുന്നു
+            totalClosedTickets += 1;
+
+            // 3. ട്രാൻസ്ക്രിപ്റ്റ് ഉണ്ടാക്കുന്നു
             const attachment = await discordTranscripts.createTranscript(interaction.channel, {
                 limit: -1,
                 returnType: 'attachment',
@@ -356,10 +374,24 @@ client.on('interactionCreate', async (interaction) => {
                 poweredBy: false
             });
 
+            // 4. ട്രാൻസ്ക്രിപ്റ്റ് ചാനലിലേക്ക് പുതിയ എമ്പെഡ് സഹിതം ലോഗ് അയക്കുന്നു
             const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
+                const closeEmbed = new EmbedBuilder()
+                    .setTitle('📜 Ticket Closed & Transcripts Logged')
+                    .setColor('#ef4444')
+                    .addFields(
+                        { name: '👤 Ticket Owner', value: ticketOwner, inline: true },
+                        { name: '🔢 Ticket No.', value: `#${interaction.channel.name.replace('ticket-', '')}`, inline: true },
+                        { name: '🏷️ Category', value: categoryName, inline: true },
+                        { name: '🔒 Closed By', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: '📊 Total Closed Tickets', value: `${totalClosedTickets}`, inline: true }
+                    )
+                    .setFooter({ text: 'ONE PEACE ROLEPLAY Support Logs' })
+                    .setTimestamp();
+
                 await logChannel.send({
-                    content: `📜 **Transcript Log for \`#${interaction.channel.name}\`**\n📌 **Closed By:** <@${interaction.user.id}>`,
+                    embeds: [closeEmbed],
                     files: [attachment]
                 });
             } else {
