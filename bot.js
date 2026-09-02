@@ -23,7 +23,7 @@ const dailyLogs = new Map(); // userId -> lastDate
 const ticketMeta = new Map(); // channelId -> { ownerId }
 let totalClosedTickets = 0; 
 
-// ---------------- CHANNEL CONFIGURATIONS ----------------
+// ---------------- CHANNEL & ROLE CONFIGURATIONS ----------------
 const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
 const LOG_CHANNEL_ID = '1542216463929311339'; 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
@@ -32,6 +32,9 @@ const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png';
 const NC_ACCEPT_LOG_CHANNEL_ID = '1544552029748465664'; // Approved Log Channel
 const NC_REJECT_LOG_CHANNEL_ID = '1544552097343873055'; // Rejected Log Channel
 const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
+
+// Staff Ticket Access Role ID
+const TICKET_STAFF_ROLE_ID = '1542813114012012554';
 
 const CATEGORIES = {
     FRP: '1543445649520070787',
@@ -331,7 +334,8 @@ client.on('interactionCreate', async (interaction) => {
     // Staff Accept Action
     if (interaction.customId.startsWith('nc_accept_')) {
         const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                        interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
         if (!isStaff) return await interaction.reply({ content: '❌ Only staff can approve applications!', ephemeral: true });
 
         const parts = interaction.customId.split('_');
@@ -365,7 +369,8 @@ client.on('interactionCreate', async (interaction) => {
     // Staff Reject Action
     if (interaction.customId.startsWith('nc_reject_')) {
         const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                        interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
         if (!isStaff) return await interaction.reply({ content: '❌ Only staff can deny applications!', ephemeral: true });
 
         const parts = interaction.customId.split('_');
@@ -436,7 +441,8 @@ client.on('interactionCreate', async (interaction) => {
 
     // --- 5. TICKET SYSTEM HANDLERS ---
     const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                    interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+                    interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+                    interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
 
     const configMap = {
         'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP },
@@ -478,6 +484,10 @@ client.on('interactionCreate', async (interaction) => {
                         id: interaction.user.id,
                         allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
                     },
+                    {
+                        id: TICKET_STAFF_ROLE_ID,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
+                    },
                 ],
             };
 
@@ -503,7 +513,7 @@ client.on('interactionCreate', async (interaction) => {
             );
 
             await channel.send({
-                content: `<@${interaction.user.id}>`,
+                content: `<@${interaction.user.id}> <@&${TICKET_STAFF_ROLE_ID}>`,
                 embeds: [ticketEmbed],
                 components: [controlButtons]
             });
