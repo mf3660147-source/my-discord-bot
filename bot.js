@@ -23,9 +23,15 @@ const dailyLogs = new Map(); // userId -> lastDate
 const ticketMeta = new Map(); // channelId -> { ownerId }
 let totalClosedTickets = 0; 
 
+// ---------------- CHANNEL CONFIGURATIONS ----------------
 const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
 const LOG_CHANNEL_ID = '1542216463929311339'; 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
+
+// Name Change Channel IDs (അപ്ഡേറ്റ് ചെയ്തത്)
+const NC_ACCEPT_LOG_CHANNEL_ID = '1544552029748465664'; // Approved Log Channel
+const NC_REJECT_LOG_CHANNEL_ID = '1544552097343873055'; // Rejected Log Channel
+const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
 
 const CATEGORIES = {
     FRP: '1543445649520070787',
@@ -72,6 +78,33 @@ client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     try {
+        // --- NAME CHANGE PORTAL SETUP COMMAND ---
+        if (message.content === '!setup-nc') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return message.reply('❌ Only admins can setup the Name Change Portal!');
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('📝 Name Change Portal')
+                .setDescription('Welcome to the official **ONE PEACE ROLEPLAY** name change system.\n\nSubmit your request below and wait for management approval.\n\n-------------------------\n\n✍️ **Name Format**\n```\n✅ Firstname_Lastname\n✅ Example: Arshal_Abu\n```\n-------------------------\n\n📊 **Status**\n🟢 System: **Online**\n🧑‍💼 Managed by: **OPRP Staff**\n📅 Review Time: **Within 24 Hours**')
+                .setImage(BANNER_IMAGE)
+                .setColor('#ef4444')
+                .setFooter({ text: 'ONE PEACE ROLEPLAY • Name Change Department' })
+                .setTimestamp();
+
+            const button = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('nc_apply_btn')
+                    .setLabel('Apply for Name Change')
+                    .setEmoji('📝')
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await message.channel.send({ embeds: [embed], components: [button] });
+            await message.delete().catch(() => {});
+        }
+
+        // --- SUPPORT TICKET SETUPS ---
         if (message.content === '!setup-support') {
             const embed = new EmbedBuilder()
                 .setTitle('🛡️ ONE PEACE ROLEPLAY - Support Desk')
@@ -168,8 +201,11 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-    // 1. Modal submit - Rename Handle
+    
+    // --- 1. MODAL SUBMIT HANDLERS ---
     if (interaction.isModalSubmit()) {
+        
+        // Ticket Rename Modal
         if (interaction.customId === 'rename_ticket_modal') {
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
             try {
@@ -179,11 +215,51 @@ client.on('interactionCreate', async (interaction) => {
                 console.error('Rename Error:', err);
                 await interaction.reply({ content: '❌ Failed to rename channel. Check bot permissions.', ephemeral: true });
             }
+            return;
         }
-        return;
+
+        // Name Change Application Modal Submission
+        if (interaction.customId === 'nc_modal_submit') {
+            const newName = interaction.fields.getTextInputValue('nc_new_name');
+            const currentName = interaction.fields.getTextInputValue('nc_current_name');
+            const level = interaction.fields.getTextInputValue('nc_level');
+            const reason = interaction.fields.getTextInputValue('nc_reason');
+
+            await interaction.reply({ content: '✅ Your Name Change Application has been submitted for staff review!', ephemeral: true });
+
+            const reviewChannel = await interaction.guild.channels.fetch(NC_REVIEW_CHANNEL_ID).catch(() => null);
+            if (reviewChannel) {
+                const reviewEmbed = new EmbedBuilder()
+                    .setTitle('📝 New Name Change Application')
+                    .setColor('#f59e0b')
+                    .addFields(
+                        { name: '👤 User', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false },
+                        { name: '📛 Current In-Game Name', value: `\`${currentName}\``, inline: true },
+                        { name: '✨ Requested New Name', value: `\`${newName}\``, inline: true },
+                        { name: '📊 In-Game Level', value: `\`${level}\``, inline: true },
+                        { name: '📝 Reason', value: reason, inline: false }
+                    )
+                    .setFooter({ text: 'ONE PEACE ROLEPLAY • NC Review System' })
+                    .setTimestamp();
+
+                const buttons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`nc_accept_${interaction.user.id}_${encodeURIComponent(currentName)}_${encodeURIComponent(newName)}`)
+                        .setLabel('Approve')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`nc_reject_${interaction.user.id}_${encodeURIComponent(currentName)}_${encodeURIComponent(newName)}`)
+                        .setLabel('Deny')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+                await reviewChannel.send({ embeds: [reviewEmbed], components: [buttons] });
+            }
+            return;
+        }
     }
 
-    // 2. Attendance Leaderboard Slash Command
+    // --- 2. SLASH COMMAND HANDLER ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
         if (attendanceData.size === 0) {
             return interaction.reply({ content: '❌ ഇതുവരെ ആരും അറ്റൻഡൻസ് രേഖപ്പെടുത്തിയിട്ടില്ല.', ephemeral: true });
@@ -206,7 +282,121 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // --- ATTENDANCE BUTTON CLICK HANDLE ---
+    // --- 3. NAME CHANGE BUTTON CLICK HANDLERS ---
+    
+    // Open Name Change Form Modal
+    if (interaction.customId === 'nc_apply_btn') {
+        const modal = new ModalBuilder()
+            .setCustomId('nc_modal_submit')
+            .setTitle('📝 Name Change Application');
+
+        const newNameInput = new TextInputBuilder()
+            .setCustomId('nc_new_name')
+            .setLabel('New Name (Firstname_Lastname)')
+            .setPlaceholder('e.g. Arakkal_Abu and Bathakka_Blaze')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const currentNameInput = new TextInputBuilder()
+            .setCustomId('nc_current_name')
+            .setLabel('Current In-Game Name')
+            .setPlaceholder('e.g. Arakkal_Kunjappu and Bathakka_Raja')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const levelInput = new TextInputBuilder()
+            .setCustomId('nc_level')
+            .setLabel('In-Game Level')
+            .setPlaceholder('e.g. Level 3')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const reasonInput = new TextInputBuilder()
+            .setCustomId('nc_reason')
+            .setLabel('Reason for Name Change')
+            .setPlaceholder('Explain why you want to change your RP name...')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(newNameInput),
+            new ActionRowBuilder().addComponents(currentNameInput),
+            new ActionRowBuilder().addComponents(levelInput),
+            new ActionRowBuilder().addComponents(reasonInput)
+        );
+
+        return await interaction.showModal(modal);
+    }
+
+    // Staff Accept Action
+    if (interaction.customId.startsWith('nc_accept_')) {
+        const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
+                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+        if (!isStaff) return await interaction.reply({ content: '❌ Only staff can approve applications!', ephemeral: true });
+
+        const parts = interaction.customId.split('_');
+        const targetUserId = parts[2];
+        const oldName = decodeURIComponent(parts[3]);
+        const newName = decodeURIComponent(parts[4]);
+
+        const acceptLogChannel = await interaction.guild.channels.fetch(NC_ACCEPT_LOG_CHANNEL_ID).catch(() => null);
+        if (acceptLogChannel) {
+            const acceptEmbed = new EmbedBuilder()
+                .setTitle('✅ Name Change Approved Log')
+                .setColor('#22c55e')
+                .addFields(
+                    { name: '👤 User', value: `<@${targetUserId}>`, inline: false },
+                    { name: '📛 Old Name', value: `\`${oldName}\``, inline: false },
+                    { name: '✨ New Name', value: `\`${newName}\``, inline: false },
+                    { name: '🧑‍💼 Approved By', value: `<@${interaction.user.id}>`, inline: false }
+                )
+                .setTimestamp();
+
+            await acceptLogChannel.send({ 
+                content: `✅ Name change approved for <@${targetUserId}>`, 
+                embeds: [acceptEmbed] 
+            });
+        }
+
+        await interaction.update({ content: `✅ **Approved by <@${interaction.user.id}>**`, components: [] });
+        return;
+    }
+
+    // Staff Reject Action
+    if (interaction.customId.startsWith('nc_reject_')) {
+        const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
+                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+        if (!isStaff) return await interaction.reply({ content: '❌ Only staff can deny applications!', ephemeral: true });
+
+        const parts = interaction.customId.split('_');
+        const targetUserId = parts[2];
+        const oldName = decodeURIComponent(parts[3]);
+        const newName = decodeURIComponent(parts[4]);
+
+        const rejectLogChannel = await interaction.guild.channels.fetch(NC_REJECT_LOG_CHANNEL_ID).catch(() => null);
+        if (rejectLogChannel) {
+            const rejectEmbed = new EmbedBuilder()
+                .setTitle('❌ Name Change Denied Log')
+                .setColor('#ef4444')
+                .addFields(
+                    { name: '👤 User', value: `<@${targetUserId}>`, inline: false },
+                    { name: '📛 Old Name', value: `\`${oldName}\``, inline: false },
+                    { name: '✨ Requested Name', value: `\`${newName}\``, inline: false },
+                    { name: '🧑‍💼 Rejected By', value: `<@${interaction.user.id}>`, inline: false }
+                )
+                .setTimestamp();
+
+            await rejectLogChannel.send({ 
+                content: `❌ Name change denied for <@${targetUserId}>`, 
+                embeds: [rejectEmbed] 
+            });
+        }
+
+        await interaction.update({ content: `❌ **Denied by <@${interaction.user.id}>**`, components: [] });
+        return;
+    }
+
+    // --- 4. ATTENDANCE BUTTON CLICK HANDLER ---
     if (interaction.customId === 'mark_attendance_btn') {
         const userId = interaction.user.id;
         const today = new Date().toISOString().split('T')[0];
@@ -244,7 +434,7 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // Staff/Admin Check
+    // --- 5. TICKET SYSTEM HANDLERS ---
     const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
                     interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
 
@@ -262,7 +452,6 @@ client.on('interactionCreate', async (interaction) => {
 
     if (selectedConfig) {
         try {
-            // സ്റ്റാഫ് അല്ലെങ്കിൽ അഡ്മിൻ പ്രൊഫൈൽ അല്ല എങ്കിൽ മാത്രം 2 ടിക്കറ്റ് ലിമിറ്റ് കൊടുക്കും
             if (!isStaff) {
                 const userTickets = Array.from(ticketMeta.values()).filter(t => t.ownerId === interaction.user.id);
 
@@ -297,8 +486,6 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const channel = await interaction.guild.channels.create(channelOptions);
-
-            // Save Owner Metadata to track Limit properly
             ticketMeta.set(channel.id, { ownerId: interaction.user.id });
 
             const ticketEmbed = new EmbedBuilder()
