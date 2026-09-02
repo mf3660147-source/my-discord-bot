@@ -19,7 +19,8 @@ const client = new Client({
 const attendanceData = new Map(); // userId -> totalCount
 const dailyLogs = new Map(); // userId -> lastDate
 
-// ടിക്കറ്റ് വിവരങ്ങൾ സൂക്ഷിക്കൽ
+// ടിക്കറ്റ് ഓണറെ തിരിച്ചറിയാനും ടാസ്‌ക് ട്രാക്ക് ചെയ്യാനും
+const ticketMeta = new Map(); // channelId -> { ownerId }
 let totalClosedTickets = 0; 
 
 const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
@@ -125,7 +126,6 @@ client.on('messageCreate', async (message) => {
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
 
-        // --- ADMIN APPLICATION SETUP COMMAND ---
         if (message.content === '!setup-admin') {
             const embed = new EmbedBuilder()
                 .setTitle('👑 Admin Application')
@@ -139,7 +139,6 @@ client.on('messageCreate', async (message) => {
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
 
-        // --- STAFF ATTENDANCE SETUP COMMAND ---
         if (message.content === '!setup-attendance') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
                 return message.reply('❌ Only admins can setup attendance!');
@@ -263,16 +262,16 @@ client.on('interactionCreate', async (interaction) => {
 
     if (selectedConfig) {
         try {
-            const userTickets = interaction.guild.channels.cache.filter(c => 
-                c.name.startsWith('ticket-') && 
-                c.permissionsFor(interaction.user.id)?.has(PermissionFlagsBits.ViewChannel)
-            );
+            // സ്റ്റാഫ് അല്ലെങ്കിൽ അഡ്മിൻ പ്രൊഫൈൽ അല്ല എങ്കിൽ മാത്രം 2 ടിക്കറ്റ് ലിമിറ്റ് കൊടുക്കും
+            if (!isStaff) {
+                const userTickets = Array.from(ticketMeta.values()).filter(t => t.ownerId === interaction.user.id);
 
-            if (userTickets.size >= 2) {
-                return await interaction.reply({ 
-                    content: '❌ **You can only have a maximum of 2 open tickets at the same time!**', 
-                    ephemeral: true 
-                });
+                if (userTickets.length >= 2) {
+                    return await interaction.reply({ 
+                        content: '❌ **You can only have a maximum of 2 open tickets at the same time!**', 
+                        ephemeral: true 
+                    });
+                }
             }
 
             const ticketNumber = Math.floor(1000 + Math.random() * 9000);
@@ -298,6 +297,9 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const channel = await interaction.guild.channels.create(channelOptions);
+
+            // Save Owner Metadata to track Limit properly
+            ticketMeta.set(channel.id, { ownerId: interaction.user.id });
 
             const ticketEmbed = new EmbedBuilder()
                 .setColor('#E6A100')
@@ -363,24 +365,14 @@ client.on('interactionCreate', async (interaction) => {
 
         try {
             let ticketOwner = 'Unknown';
-            const nonStaffPermissions = interaction.channel.permissionOverwrites.cache.find(
-                p => p.type === 1 && p.id !== client.user.id && p.id !== interaction.guild.roles.everyone.id
-            );
-
-            if (nonStaffPermissions) {
-                ticketOwner = `<@${nonStaffPermissions.id}>`;
+            const metaData = ticketMeta.get(interaction.channel.id);
+            if (metaData) {
+                ticketOwner = `<@${metaData.ownerId}>`;
             } else {
-                const messages = await interaction.channel.messages.fetch({ limit: 10, oldest: true });
-                const firstMsg = messages.first();
-                if (firstMsg) {
-                    if (firstMsg.mentions.users.first()) {
-                        ticketOwner = `<@${firstMsg.mentions.users.first().id}>`;
-                    } else if (firstMsg.embeds.length > 0) {
-                        const description = firstMsg.embeds[0].description || '';
-                        const ownerMatch = description.match(/<@!?(\d+)>/);
-                        if (ownerMatch) ticketOwner = `<@${ownerMatch[1]}>`;
-                    }
-                }
+                const nonStaffPermissions = interaction.channel.permissionOverwrites.cache.find(
+                    p => p.type === 1 && p.id !== client.user.id && p.id !== interaction.guild.roles.everyone.id
+                );
+                if (nonStaffPermissions) ticketOwner = `<@${nonStaffPermissions.id}>`;
             }
 
             const categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
@@ -418,6 +410,7 @@ client.on('interactionCreate', async (interaction) => {
             console.error('Transcript Log Error:', err);
         }
 
+        ticketMeta.delete(interaction.channel.id);
         setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
     }
 });
