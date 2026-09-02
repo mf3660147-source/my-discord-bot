@@ -1,31 +1,10 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
-const mongoose = require('mongoose');
 
 const app = express();
 app.get('/', (req, res) => res.send('ONE PEACE ROLEPLAY Bot is Online!'));
 app.listen(3000, () => console.log('Server Ready'));
-
-// --- MONGODB CONNECTION SETUP ---
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://fmh3510_db_user:PnUlbQCbd4EhI6BY@cluster0.n5o3rd0.mongodb.net/?appName=Cluster0';
-
-mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ Successfully connected to MongoDB Atlas Database!'))
-    .catch(err => console.error('❌ MongoDB Connection Error:', err));
-
-// Database Schema & Model Definitions
-const AttendanceSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    totalDays: { type: Number, default: 0 },
-    lastMarkedDate: { type: String, default: '' }
-});
-
-const Attendance = mongoose.model('Attendance', AttendanceSchema);
-
-// Memory Meta Storage for Active Tickets
-const ticketMeta = new Map(); // channelId -> { ownerId, openTime, claimedBy }
-let totalClosedTickets = 0;
 
 const client = new Client({
     intents: [
@@ -35,6 +14,13 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ]
 });
+
+// അറ്റൻഡൻസ് സൂക്ഷിക്കുന്ന മെമ്മറി
+const attendanceData = new Map(); // userId -> totalCount
+const dailyLogs = new Map(); // userId -> lastDate
+
+// ടിക്കറ്റ് വിവരങ്ങൾ സൂക്ഷിക്കൽ
+let totalClosedTickets = 0; 
 
 const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418'; 
 const LOG_CHANNEL_ID = '1542216463929311339'; 
@@ -139,6 +125,7 @@ client.on('messageCreate', async (message) => {
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
 
+        // --- ADMIN APPLICATION SETUP COMMAND ---
         if (message.content === '!setup-admin') {
             const embed = new EmbedBuilder()
                 .setTitle('👑 Admin Application')
@@ -152,6 +139,7 @@ client.on('messageCreate', async (message) => {
             await message.channel.send({ embeds: [embed], components: [buttons] });
         }
 
+        // --- STAFF ATTENDANCE SETUP COMMAND ---
         if (message.content === '!setup-attendance') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
                 return message.reply('❌ Only admins can setup attendance!');
@@ -181,7 +169,7 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-    // 1. Modal Submits Handling
+    // 1. Modal submit - Rename Handle
     if (interaction.isModalSubmit()) {
         if (interaction.customId === 'rename_ticket_modal') {
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
@@ -192,157 +180,72 @@ client.on('interactionCreate', async (interaction) => {
                 console.error('Rename Error:', err);
                 await interaction.reply({ content: '❌ Failed to rename channel. Check bot permissions.', ephemeral: true });
             }
-            return;
-        }
-
-        // Close Ticket Reason Modal Handling
-        if (interaction.customId === 'close_ticket_modal') {
-            const reason = interaction.fields.getTextInputValue('close_reason_input');
-            const data = ticketMeta.get(interaction.channel.id) || {};
-            
-            await interaction.reply('🔒 Generating transcript and logging data before closing...');
-
-            try {
-                totalClosedTickets += 1;
-                const categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
-
-                const attachment = await discordTranscripts.createTranscript(interaction.channel, {
-                    limit: -1,
-                    returnType: 'attachment',
-                    filename: `${interaction.channel.name}-transcript.html`,
-                    saveImages: true,
-                    poweredBy: false
-                });
-
-                // Transcript Log
-                const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-                if (logChannel) {
-                    const closeEmbed = new EmbedBuilder()
-                        .setTitle('📜 Ticket Closed & Transcripts Logged')
-                        .setColor('#ef4444')
-                        .addFields(
-                            { name: '👤 Ticket Owner', value: data.ownerId ? `<@${data.ownerId}>` : 'Unknown', inline: true },
-                            { name: '🔢 Ticket No.', value: `#${interaction.channel.name.replace('ticket-', '')}`, inline: true },
-                            { name: '🏷️ Category', value: categoryName, inline: true },
-                            { name: '🛡️ Claimed By', value: data.claimedBy ? `<@${data.claimedBy}>` : 'Not Claimed', inline: true },
-                            { name: '🔒 Closed By', value: `<@${interaction.user.id}>`, inline: true },
-                            { name: '📊 Total Closed Tickets', value: `${totalClosedTickets}`, inline: true }
-                        )
-                        .setFooter({ text: 'ONE PEACE ROLEPLAY Support Logs' })
-                        .setTimestamp();
-
-                    await logChannel.send({ embeds: [closeEmbed], files: [attachment] });
-                }
-
-                // Attendance Log Channel Update
-                const attendanceLogChannel = await interaction.guild.channels.fetch(ATTENDANCE_LOG_CHANNEL_ID).catch(() => null);
-                if (attendanceLogChannel) {
-                    const ticketLogEmbed = new EmbedBuilder()
-                        .setTitle('🎫 Ticket Attendance & Details Log')
-                        .setColor('#3b82f6')
-                        .addFields(
-                            { name: '🔢 Ticket Name/Number', value: `\`${interaction.channel.name}\``, inline: true },
-                            { name: '👤 Ticket Owner', value: data.ownerId ? `<@${data.ownerId}>` : 'Unknown', inline: true },
-                            { name: '🛡️ Claimed By', value: data.claimedBy ? `<@${data.claimedBy}>` : 'Not Claimed', inline: true },
-                            { name: '🔒 Closed By', value: `<@${interaction.user.id}>`, inline: true },
-                            { name: '⏰ Open Time', value: data.openTime ? `<t:${Math.floor(data.openTime / 1000)}:F>` : 'Unknown', inline: true },
-                            { name: '📝 Closing Reason', value: reason || 'No reason provided', inline: false }
-                        )
-                        .setFooter({ text: 'ONE PEACE ROLEPLAY System' })
-                        .setTimestamp();
-
-                    await attendanceLogChannel.send({ embeds: [ticketLogEmbed] });
-                }
-
-            } catch (err) {
-                console.error('Ticket Closure Error:', err);
-            }
-
-            ticketMeta.delete(interaction.channel.id);
-            setTimeout(() => interaction.channel.delete().catch(console.error), 4000);
-            return;
-        }
-    }
-
-    // 2. Attendance Leaderboard Slash Command (Fetched from MongoDB)
-    if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
-        try {
-            const records = await Attendance.find().sort({ totalDays: -1 }).limit(10);
-
-            if (!records || records.length === 0) {
-                return interaction.reply({ content: '❌ ഇതുവരെ ആരും അറ്റൻഡൻസ് രേഖപ്പെടുത്തിയിട്ടില്ല.', ephemeral: true });
-            }
-
-            let leaderboardText = records.map(([record, index]) => {
-                return `**#${index + 1}** <@${record.userId}> — **${record.totalDays} Days**`;
-            }).join('\n');
-
-            const lbEmbed = new EmbedBuilder()
-                .setTitle('🏆 Staff Attendance Leaderboard')
-                .setDescription(leaderboardText)
-                .setColor('#f59e0b')
-                .setFooter({ text: 'ONE PEACE ROLEPLAY Staff Team' })
-                .setTimestamp();
-
-            return await interaction.reply({ embeds: [lbEmbed] });
-        } catch (err) {
-            console.error('Leaderboard Fetch Error:', err);
-            return interaction.reply({ content: '❌ Error fetching leaderboard data.', ephemeral: true });
-        }
-    }
-
-    if (!interaction.isButton()) return;
-
-    // 3. Mark Attendance Button (Saved directly to MongoDB Database)
-    if (interaction.customId === 'mark_attendance_btn') {
-        const userId = interaction.user.id;
-        const today = new Date().toISOString().split('T')[0];
-
-        try {
-            let userDoc = await Attendance.findOne({ userId });
-
-            if (userDoc && userDoc.lastMarkedDate === today) {
-                return await interaction.reply({ 
-                    content: '❌ നിങ്ങൾ ഇന്നത്തെ അറ്റൻഡൻസ് നേരത്തെ രേഖപ്പെടുത്തിയിട്ടുണ്ട്!', 
-                    ephemeral: true 
-                });
-            }
-
-            if (!userDoc) {
-                userDoc = new Attendance({ userId, totalDays: 1, lastMarkedDate: today });
-            } else {
-                userDoc.totalDays += 1;
-                userDoc.lastMarkedDate = today;
-            }
-
-            await userDoc.save();
-
-            await interaction.reply({ 
-                content: `✅ നിങ്ങളുടെ അറ്റൻഡൻസ് ഇന്ന് (${today}) രേഖപ്പെടുത്തിയിരിക്കുന്നു! (Total: ${userDoc.totalDays} Days)`, 
-                ephemeral: true 
-            });
-
-            const logChannel = await interaction.guild.channels.fetch(ATTENDANCE_LOG_CHANNEL_ID).catch(() => null);
-            if (logChannel) {
-                const logEmbed = new EmbedBuilder()
-                    .setTitle('📌 Staff Attendance Logged')
-                    .setColor('#10b981')
-                    .addFields(
-                        { name: 'Staff Member', value: `<@${userId}>`, inline: true },
-                        { name: 'Date', value: today, inline: true },
-                        { name: 'Total Attendance', value: `${userDoc.totalDays} Days`, inline: true }
-                    )
-                    .setTimestamp();
-
-                await logChannel.send({ embeds: [logEmbed] });
-            }
-        } catch (err) {
-            console.error('Attendance Save Error:', err);
-            await interaction.reply({ content: '❌ Error saving attendance.', ephemeral: true });
         }
         return;
     }
 
+    // 2. Attendance Leaderboard Slash Command
+    if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
+        if (attendanceData.size === 0) {
+            return interaction.reply({ content: '❌ ഇതുവരെ ആരും അറ്റൻഡൻസ് രേഖപ്പെടുത്തിയിട്ടില്ല.', ephemeral: true });
+        }
+
+        const sorted = Array.from(attendanceData.entries()).sort((a, b) => b[1] - a[1]);
+        let leaderboardText = sorted.map(([user, count], index) => {
+            return `**#${index + 1}** <@${user}> — **${count} Days**`;
+        }).join('\n');
+
+        const lbEmbed = new EmbedBuilder()
+            .setTitle('🏆 Staff Attendance Leaderboard')
+            .setDescription(leaderboardText)
+            .setColor('#f59e0b')
+            .setFooter({ text: 'ONE PEACE ROLEPLAY Staff Team' })
+            .setTimestamp();
+
+        return await interaction.reply({ embeds: [lbEmbed] });
+    }
+
+    if (!interaction.isButton()) return;
+
+    // --- ATTENDANCE BUTTON CLICK HANDLE ---
+    if (interaction.customId === 'mark_attendance_btn') {
+        const userId = interaction.user.id;
+        const today = new Date().toISOString().split('T')[0];
+
+        if (dailyLogs.get(userId) === today) {
+            return await interaction.reply({ 
+                content: '❌ നിങ്ങൾ ഇന്നത്തെ അറ്റൻഡൻസ് നേരത്തെ രേഖപ്പെടുത്തിയിട്ടുണ്ട്!', 
+                ephemeral: true 
+            });
+        }
+
+        dailyLogs.set(userId, today);
+        const currentCount = (attendanceData.get(userId) || 0) + 1;
+        attendanceData.set(userId, currentCount);
+
+        await interaction.reply({ 
+            content: `✅ നിങ്ങളുടെ അറ്റൻഡൻസ് ഇന്ന് (${today}) രേഖപ്പെടുത്തിയിരിക്കുന്നു! (Total: ${currentCount} Days)`, 
+            ephemeral: true 
+        });
+
+        const logChannel = await interaction.guild.channels.fetch(ATTENDANCE_LOG_CHANNEL_ID).catch(() => null);
+        if (logChannel) {
+            const logEmbed = new EmbedBuilder()
+                .setTitle('📌 Staff Attendance Logged')
+                .setColor('#10b981')
+                .addFields(
+                    { name: 'Staff Member', value: `<@${userId}>`, inline: true },
+                    { name: 'Date', value: today, inline: true },
+                    { name: 'Total Attendance', value: `${currentCount} Days`, inline: true }
+                )
+                .setTimestamp();
+
+            await logChannel.send({ embeds: [logEmbed] });
+        }
+        return;
+    }
+
+    // Staff/Admin Check
     const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
                     interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
 
@@ -358,7 +261,6 @@ client.on('interactionCreate', async (interaction) => {
 
     const selectedConfig = configMap[interaction.customId];
 
-    // 4. Ticket Creation
     if (selectedConfig) {
         try {
             const userTickets = interaction.guild.channels.cache.filter(c => 
@@ -397,13 +299,6 @@ client.on('interactionCreate', async (interaction) => {
 
             const channel = await interaction.guild.channels.create(channelOptions);
 
-            // Record Ticket Metadata
-            ticketMeta.set(channel.id, {
-                ownerId: interaction.user.id,
-                openTime: Date.now(),
-                claimedBy: null
-            });
-
             const ticketEmbed = new EmbedBuilder()
                 .setColor('#E6A100')
                 .setTitle(`✨ Ticket #${ticketNumber}`)
@@ -431,29 +326,16 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // 5. Claim Ticket
     if (interaction.customId === 'claim_ticket') {
         if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can claim tickets!**', ephemeral: true });
-
-        const data = ticketMeta.get(interaction.channel.id) || {};
-        data.claimedBy = interaction.user.id;
-        ticketMeta.set(interaction.channel.id, data);
-
         await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>!` });
     }
 
-    // 6. Unclaim Ticket
     if (interaction.customId === 'unclaim_ticket') {
         if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can unclaim tickets!**', ephemeral: true });
-
-        const data = ticketMeta.get(interaction.channel.id) || {};
-        data.claimedBy = null;
-        ticketMeta.set(interaction.channel.id, data);
-
         await interaction.reply({ content: `⚠️ Ticket unclaimed!` });
     }
 
-    // 7. Rename Ticket
     if (interaction.customId === 'rename_ticket') {
         if (!isStaff) return await interaction.reply({ content: '❌ **Only staff members can rename tickets!**', ephemeral: true });
 
@@ -469,7 +351,6 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.showModal(modal);
     }
 
-    // 8. Close Ticket Button Handle (Prompts Modal for Reason)
     if (interaction.customId === 'close_ticket') {
         if (!isStaff) {
             return await interaction.reply({ 
@@ -478,19 +359,66 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        const modal = new ModalBuilder()
-            .setCustomId('close_ticket_modal')
-            .setTitle('Close Ticket');
+        await interaction.reply('🔒 Generating transcript and closing ticket in 5 seconds...');
 
-        const reasonInput = new TextInputBuilder()
-            .setCustomId('close_reason_input')
-            .setLabel('Reason for closing this ticket')
-            .setStyle(TextInputStyle.Paragraph)
-            .setPlaceholder('Enter closing reason here...')
-            .setRequired(true);
+        try {
+            let ticketOwner = 'Unknown';
+            const nonStaffPermissions = interaction.channel.permissionOverwrites.cache.find(
+                p => p.type === 1 && p.id !== client.user.id && p.id !== interaction.guild.roles.everyone.id
+            );
 
-        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-        await interaction.showModal(modal);
+            if (nonStaffPermissions) {
+                ticketOwner = `<@${nonStaffPermissions.id}>`;
+            } else {
+                const messages = await interaction.channel.messages.fetch({ limit: 10, oldest: true });
+                const firstMsg = messages.first();
+                if (firstMsg) {
+                    if (firstMsg.mentions.users.first()) {
+                        ticketOwner = `<@${firstMsg.mentions.users.first().id}>`;
+                    } else if (firstMsg.embeds.length > 0) {
+                        const description = firstMsg.embeds[0].description || '';
+                        const ownerMatch = description.match(/<@!?(\d+)>/);
+                        if (ownerMatch) ticketOwner = `<@${ownerMatch[1]}>`;
+                    }
+                }
+            }
+
+            const categoryName = interaction.channel.parent ? interaction.channel.parent.name : 'General';
+            totalClosedTickets += 1;
+
+            const attachment = await discordTranscripts.createTranscript(interaction.channel, {
+                limit: -1,
+                returnType: 'attachment',
+                filename: `${interaction.channel.name}-transcript.html`,
+                saveImages: true,
+                poweredBy: false
+            });
+
+            const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+            if (logChannel) {
+                const closeEmbed = new EmbedBuilder()
+                    .setTitle('📜 Ticket Closed & Transcripts Logged')
+                    .setColor('#ef4444')
+                    .addFields(
+                        { name: '👤 Ticket Owner', value: ticketOwner, inline: true },
+                        { name: '🔢 Ticket No.', value: `#${interaction.channel.name.replace('ticket-', '')}`, inline: true },
+                        { name: '🏷️ Category', value: categoryName, inline: true },
+                        { name: '🔒 Closed By', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: '📊 Total Closed Tickets', value: `${totalClosedTickets}`, inline: true }
+                    )
+                    .setFooter({ text: 'ONE PEACE ROLEPLAY Support Logs' })
+                    .setTimestamp();
+
+                await logChannel.send({
+                    embeds: [closeEmbed],
+                    files: [attachment]
+                });
+            }
+        } catch (err) {
+            console.error('Transcript Log Error:', err);
+        }
+
+        setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
     }
 });
 
