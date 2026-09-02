@@ -28,7 +28,7 @@ const ATTENDANCE_LOG_CHANNEL_ID = '1544149519472529418';
 const LOG_CHANNEL_ID = '1542216463929311339'; 
 const BANNER_IMAGE = 'https://i.ibb.co/yFZrkrVY/1787815678187.png'; 
 
-// Name Change Channel IDs (അപ്ഡേറ്റ് ചെയ്തത്)
+// Name Change Channel IDs
 const NC_ACCEPT_LOG_CHANNEL_ID = '1544552029748465664'; // Approved Log Channel
 const NC_REJECT_LOG_CHANNEL_ID = '1544552097343873055'; // Rejected Log Channel
 const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
@@ -86,7 +86,7 @@ client.on('messageCreate', async (message) => {
 
             const embed = new EmbedBuilder()
                 .setTitle('📝 Name Change Portal')
-                .setDescription('Welcome to the official **ONE PEACE ROLEPLAY** name change system.\n\nSubmit your request below and wait for management approval.\n\n-------------------------\n\n✍️ **Name Format**\n```\n✅ Firstname_Lastname\n✅ Example: Arshal_Abu\n```\n-------------------------\n\n📊 **Status**\n🟢 System: **Online**\n🧑‍💼 Managed by: **OPRP Staff**\n📅 Review Time: **Within 24 Hours**')
+                .setDescription('Welcome to the official **ONE PEACE ROLEPLAY** name change system.\n\nSubmit your request below and wait for management approval.\n\n-------------------------\n\n✍️ **Name Format**\n```\n✅ Firstname_Lastname\n✅ Example: Oggy_Ftw\n```\n-------------------------\n\n📊 **Status**\n🟢 System: **Online**\n🧑‍💼 Managed by: **OPRP Staff**\n📅 Review Time: **Within 24 Hours**')
                 .setImage(BANNER_IMAGE)
                 .setColor('#ef4444')
                 .setFooter({ text: 'ONE PEACE ROLEPLAY • Name Change Department' })
@@ -293,14 +293,14 @@ client.on('interactionCreate', async (interaction) => {
         const newNameInput = new TextInputBuilder()
             .setCustomId('nc_new_name')
             .setLabel('New Name (Firstname_Lastname)')
-            .setPlaceholder('e.g. Arakkal_Abu and Bathakka_Blaze')
+            .setPlaceholder('e.g. Oggy_Ftw')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
         const currentNameInput = new TextInputBuilder()
             .setCustomId('nc_current_name')
             .setLabel('Current In-Game Name')
-            .setPlaceholder('e.g. Arakkal_Kunjappu and Bathakka_Raja')
+            .setPlaceholder('e.g. Itz_Thor')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
