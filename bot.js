@@ -20,7 +20,7 @@ const attendanceData = new Map(); // userId -> totalCount
 const dailyLogs = new Map(); // userId -> lastDate
 
 // ടിക്കറ്റ് ഓണറെ തിരിച്ചറിയാനും ടാസ്‌ക് ട്രാക്ക് ചെയ്യാനും
-const ticketMeta = new Map(); // channelId -> { ownerId }
+const ticketMeta = new Map(); // channelId -> { ownerId, roleId }
 let totalClosedTickets = 0; 
 
 // ---------------- CHANNEL & ROLE CONFIGURATIONS ----------------
@@ -33,8 +33,10 @@ const NC_ACCEPT_LOG_CHANNEL_ID = '1544552029748465664'; // Approved Log Channel
 const NC_REJECT_LOG_CHANNEL_ID = '1544552097343873055'; // Rejected Log Channel
 const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
 
-// Staff Ticket Access Role ID
+// Roles
 const TICKET_STAFF_ROLE_ID = '1542813114012012554';
+const FACTION_ROLE_ID = '1543941439451435158';
+const GANG_ROLE_ID = '1543941302423650396';
 
 const CATEGORIES = {
     FRP: '1543445649520070787',
@@ -208,12 +210,31 @@ client.on('interactionCreate', async (interaction) => {
     // --- 1. MODAL SUBMIT HANDLERS ---
     if (interaction.isModalSubmit()) {
         
-        // Ticket Rename Modal
+        // Ticket Rename Modal Handling
         if (interaction.customId === 'rename_ticket_modal') {
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
             try {
                 await interaction.channel.setName(newName);
-                await interaction.reply({ content: `✅ Ticket renamed to **${newName}**`, ephemeral: true });
+
+                // റീനെയിം ചെയ്യുമ്പോൾ പെർമിഷനുകൾ നഷ്ടപ്പെടാതിരിക്കാൻ ഉറപ്പുവരുത്തുന്നു
+                await interaction.channel.permissionOverwrites.edit(TICKET_STAFF_ROLE_ID, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    AttachFiles: true,
+                    ReadMessageHistory: true
+                });
+
+                const meta = ticketMeta.get(interaction.channel.id);
+                if (meta && meta.roleId) {
+                    await interaction.channel.permissionOverwrites.edit(meta.roleId, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        AttachFiles: true,
+                        ReadMessageHistory: true
+                    });
+                }
+
+                await interaction.reply({ content: `✅ Ticket renamed to **${newName}**! All permissions preserved.`, ephemeral: true });
             } catch (err) {
                 console.error('Rename Error:', err);
                 await interaction.reply({ content: '❌ Failed to rename channel. Check bot permissions.', ephemeral: true });
@@ -448,8 +469,8 @@ client.on('interactionCreate', async (interaction) => {
         'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP },
         'ticket_gang_frp': { name: 'Gang FRP', categoryId: CATEGORIES.GANG_FRP },
         'ticket_help': { name: 'Help', categoryId: CATEGORIES.HELP },
-        'ticket_faction_app': { name: 'Faction Application', categoryId: CATEGORIES.FACTION_APP },
-        'ticket_gang_app': { name: 'Gang Application', categoryId: CATEGORIES.GANG_APP },
+        'ticket_faction_app': { name: 'Faction Application', categoryId: CATEGORIES.FACTION_APP, specificRoleId: FACTION_ROLE_ID },
+        'ticket_gang_app': { name: 'Gang Application', categoryId: CATEGORIES.GANG_APP, specificRoleId: GANG_ROLE_ID },
         'ticket_vip': { name: 'VIP', categoryId: CATEGORIES.VIP },
         'ticket_admin_app': { name: 'Admin Application', categoryId: CATEGORIES.ADMIN_APP }
     };
@@ -472,23 +493,33 @@ client.on('interactionCreate', async (interaction) => {
             const ticketNumber = Math.floor(1000 + Math.random() * 9000);
             const channelName = `ticket-${ticketNumber}`;
 
+            const permissionOverwrites = [
+                {
+                    id: interaction.guild.id,
+                    deny: [PermissionFlagsBits.ViewChannel],
+                },
+                {
+                    id: interaction.user.id,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
+                },
+                {
+                    id: TICKET_STAFF_ROLE_ID,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
+                }
+            ];
+
+            // Faction/Gang ആപ്ലിക്കേഷന് പ്രത്യേക റോൾ പെർമിഷൻ സെറ്റ് ചെയ്യുന്നു
+            if (selectedConfig.specificRoleId) {
+                permissionOverwrites.push({
+                    id: selectedConfig.specificRoleId,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
+                });
+            }
+
             const channelOptions = {
                 name: channelName,
                 type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    {
-                        id: interaction.guild.id,
-                        deny: [PermissionFlagsBits.ViewChannel],
-                    },
-                    {
-                        id: interaction.user.id,
-                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
-                    },
-                    {
-                        id: TICKET_STAFF_ROLE_ID,
-                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
-                    },
-                ],
+                permissionOverwrites: permissionOverwrites,
             };
 
             if (selectedConfig.categoryId && selectedConfig.categoryId.length > 10) {
@@ -496,7 +527,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const channel = await interaction.guild.channels.create(channelOptions);
-            ticketMeta.set(channel.id, { ownerId: interaction.user.id });
+            ticketMeta.set(channel.id, { ownerId: interaction.user.id, roleId: selectedConfig.specificRoleId || null });
 
             const ticketEmbed = new EmbedBuilder()
                 .setColor('#E6A100')
@@ -512,8 +543,13 @@ client.on('interactionCreate', async (interaction) => {
                 new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
             );
 
+            let tagContent = `<@${interaction.user.id}> <@&${TICKET_STAFF_ROLE_ID}>`;
+            if (selectedConfig.specificRoleId) {
+                tagContent += ` <@&${selectedConfig.specificRoleId}>`;
+            }
+
             await channel.send({
-                content: `<@${interaction.user.id}> <@&${TICKET_STAFF_ROLE_ID}>`,
+                content: tagContent,
                 embeds: [ticketEmbed],
                 components: [controlButtons]
             });
