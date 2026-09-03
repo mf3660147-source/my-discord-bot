@@ -35,6 +35,7 @@ const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
 
 // Roles
 const TICKET_STAFF_ROLE_ID = '1542813114012012554';
+const ADMIN_ROLE_ID = '1542503336484413460'; // ⚠️ ഇവിടെ നിങ്ങളുടെ Admin Role ID ചേർക്കുക
 const FACTION_ROLE_ID = '1543941439451435158';
 const GANG_ROLE_ID = '1543941302423650396';
 
@@ -210,13 +211,11 @@ client.on('interactionCreate', async (interaction) => {
     // --- 1. MODAL SUBMIT HANDLERS ---
     if (interaction.isModalSubmit()) {
         
-        // Ticket Rename Modal Handling
         if (interaction.customId === 'rename_ticket_modal') {
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
             try {
                 await interaction.channel.setName(newName);
 
-                // റീനെയിം ചെയ്യുമ്പോൾ പെർമിഷനുകൾ നഷ്ടപ്പെടാതിരിക്കാൻ ഉറപ്പുവരുത്തുന്നു
                 await interaction.channel.permissionOverwrites.edit(TICKET_STAFF_ROLE_ID, {
                     ViewChannel: true,
                     SendMessages: true,
@@ -242,7 +241,6 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        // Name Change Application Modal Submission
         if (interaction.customId === 'nc_modal_submit') {
             const newName = interaction.fields.getTextInputValue('nc_new_name');
             const currentName = interaction.fields.getTextInputValue('nc_current_name');
@@ -307,8 +305,6 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
 
     // --- 3. NAME CHANGE BUTTON CLICK HANDLERS ---
-    
-    // Open Name Change Form Modal
     if (interaction.customId === 'nc_apply_btn') {
         const modal = new ModalBuilder()
             .setCustomId('nc_modal_submit')
@@ -352,12 +348,9 @@ client.on('interactionCreate', async (interaction) => {
         return await interaction.showModal(modal);
     }
 
-    // Staff Accept Action
     if (interaction.customId.startsWith('nc_accept_')) {
-        const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
-                        interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
-        if (!isStaff) return await interaction.reply({ content: '❌ Only staff can approve applications!', ephemeral: true });
+        const isStaffCheck = interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
+        if (!isStaffCheck) return await interaction.reply({ content: '❌ Only staff can approve applications!', ephemeral: true });
 
         const parts = interaction.customId.split('_');
         const targetUserId = parts[2];
@@ -387,12 +380,9 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // Staff Reject Action
     if (interaction.customId.startsWith('nc_reject_')) {
-        const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                        interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
-                        interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
-        if (!isStaff) return await interaction.reply({ content: '❌ Only staff can deny applications!', ephemeral: true });
+        const isStaffCheck = interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
+        if (!isStaffCheck) return await interaction.reply({ content: '❌ Only staff can deny applications!', ephemeral: true });
 
         const parts = interaction.customId.split('_');
         const targetUserId = parts[2];
@@ -461,18 +451,16 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // --- 5. TICKET SYSTEM HANDLERS ---
-    const isStaff = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                    interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) ||
-                    interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
+    const isStaff = interaction.member.roles.cache.has(TICKET_STAFF_ROLE_ID);
 
     const configMap = {
-        'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP },
-        'ticket_gang_frp': { name: 'Gang FRP', categoryId: CATEGORIES.GANG_FRP },
-        'ticket_help': { name: 'Help', categoryId: CATEGORIES.HELP },
-        'ticket_faction_app': { name: 'Faction Application', categoryId: CATEGORIES.FACTION_APP, specificRoleId: FACTION_ROLE_ID },
-        'ticket_gang_app': { name: 'Gang Application', categoryId: CATEGORIES.GANG_APP, specificRoleId: GANG_ROLE_ID },
-        'ticket_vip': { name: 'VIP', categoryId: CATEGORIES.VIP },
-        'ticket_admin_app': { name: 'Admin Application', categoryId: CATEGORIES.ADMIN_APP }
+        'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP, allowAdmin: true },
+        'ticket_gang_frp': { name: 'Gang FRP', categoryId: CATEGORIES.GANG_FRP, allowAdmin: true },
+        'ticket_help': { name: 'Help', categoryId: CATEGORIES.HELP, allowAdmin: true },
+        'ticket_faction_app': { name: 'Faction Application', categoryId: CATEGORIES.FACTION_APP, specificRoleId: FACTION_ROLE_ID, allowAdmin: false },
+        'ticket_gang_app': { name: 'Gang Application', categoryId: CATEGORIES.GANG_APP, specificRoleId: GANG_ROLE_ID, allowAdmin: false },
+        'ticket_vip': { name: 'VIP', categoryId: CATEGORIES.VIP, allowAdmin: false },
+        'ticket_admin_app': { name: 'Admin Application', categoryId: CATEGORIES.ADMIN_APP, allowAdmin: false }
     };
 
     const selectedConfig = configMap[interaction.customId];
@@ -508,7 +496,21 @@ client.on('interactionCreate', async (interaction) => {
                 }
             ];
 
-            // Faction/Gang ആപ്ലിക്കേഷന് പ്രത്യേക റോൾ പെർമിഷൻ സെറ്റ് ചെയ്യുന്നു
+            // FRP, Gang FRP, Help ചാനലുകളിൽ മാത്രം Admin Role-ന് ആക്സസ് നൽകുന്നു
+            if (selectedConfig.allowAdmin && ADMIN_ROLE_ID) {
+                permissionOverwrites.push({
+                    id: ADMIN_ROLE_ID,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory],
+                });
+            } else if (ADMIN_ROLE_ID) {
+                // മറ്റുള്ളവയിൽ Admin-നെ ബ്ലോക്ക് ചെയ്യുന്നു
+                permissionOverwrites.push({
+                    id: ADMIN_ROLE_ID,
+                    deny: [PermissionFlagsBits.ViewChannel],
+                });
+            }
+
+            // Faction/Gang ആപ്ലിക്കേഷന് പ്രത്യേക റോൾ പെർമിഷൻ
             if (selectedConfig.specificRoleId) {
                 permissionOverwrites.push({
                     id: selectedConfig.specificRoleId,
