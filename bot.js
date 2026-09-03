@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes, UserSelectMenuBuilder } = require('discord.js');
 const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
 
@@ -213,67 +213,55 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
     
-    // --- 1. MODAL SUBMIT HANDLERS ---
-    if (interaction.isModalSubmit()) {
-        
-        // Add User Modal Submission
-        if (interaction.customId === 'add_user_modal') {
-            if (!hasAdminAccess(interaction.member)) {
-                return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
-            }
+    // --- 1. USER SELECT MENU HANDLERS ---
+    if (interaction.isUserSelectMenu()) {
+        const userIsAdmin = hasAdminAccess(interaction.member);
 
-            const userIdInput = interaction.fields.getTextInputValue('target_user_id').trim();
+        // Adding User Process
+        if (interaction.customId === 'add_user_select') {
+            if (!userIsAdmin) return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
+
+            const targetUserId = interaction.values[0];
             try {
-                const targetMember = await interaction.guild.members.fetch(userIdInput).catch(() => null);
-
-                if (!targetMember) {
-                    return await interaction.reply({ content: '❌ Invalid User ID or member not found in this server!', ephemeral: true });
-                }
-
-                await interaction.channel.permissionOverwrites.edit(targetMember.id, {
+                await interaction.channel.permissionOverwrites.edit(targetUserId, {
                     ViewChannel: true,
                     SendMessages: true,
                     AttachFiles: true,
                     ReadMessageHistory: true
                 });
 
-                await interaction.reply({ content: `✅ Successfully added <@${targetMember.id}> to this ticket!` });
+                await interaction.reply({ content: `✅ Successfully added <@${targetUserId}> to this ticket!` });
             } catch (err) {
                 console.error('Add User Error:', err);
-                await interaction.reply({ content: '❌ Failed to add user. Make sure the bot has permission.', ephemeral: true });
+                await interaction.reply({ content: '❌ Failed to add user. Check bot permissions.', ephemeral: true });
             }
             return;
         }
 
-        // Remove User Modal Submission
-        if (interaction.customId === 'remove_user_modal') {
-            if (!hasAdminAccess(interaction.member)) {
-                return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
+        // Removing User Process
+        if (interaction.customId === 'remove_user_select') {
+            if (!userIsAdmin) return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
+
+            const targetUserId = interaction.values[0];
+            const meta = ticketMeta.get(interaction.channel.id);
+
+            if (meta && meta.ownerId === targetUserId) {
+                return await interaction.reply({ content: '❌ You cannot remove the ticket owner/creator!', ephemeral: true });
             }
 
-            const userIdInput = interaction.fields.getTextInputValue('remove_target_user_id').trim();
             try {
-                const targetMember = await interaction.guild.members.fetch(userIdInput).catch(() => null);
-
-                if (!targetMember) {
-                    return await interaction.reply({ content: '❌ Invalid User ID or member not found in this server!', ephemeral: true });
-                }
-
-                const meta = ticketMeta.get(interaction.channel.id);
-                if (meta && meta.ownerId === targetMember.id) {
-                    return await interaction.reply({ content: '❌ You cannot remove the ticket creator/owner from the ticket!', ephemeral: true });
-                }
-
-                await interaction.channel.permissionOverwrites.delete(targetMember.id);
-
-                await interaction.reply({ content: `🚫 Successfully removed <@${targetMember.id}> from this ticket!` });
+                await interaction.channel.permissionOverwrites.delete(targetUserId);
+                await interaction.reply({ content: `🚫 Successfully removed <@${targetUserId}> from this ticket!` });
             } catch (err) {
                 console.error('Remove User Error:', err);
-                await interaction.reply({ content: '❌ Failed to remove user. Make sure the bot has permission.', ephemeral: true });
+                await interaction.reply({ content: '❌ Failed to remove user.', ephemeral: true });
             }
             return;
         }
+    }
 
+    // --- 2. MODAL SUBMIT HANDLERS ---
+    if (interaction.isModalSubmit()) {
         if (interaction.customId === 'rename_ticket_modal') {
             if (!hasAdminAccess(interaction.member)) {
                 return await interaction.reply({ content: '❌ Only Admins can rename tickets!', ephemeral: true });
@@ -330,7 +318,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // --- 2. SLASH COMMAND HANDLER ---
+    // --- 3. SLASH COMMAND HANDLER ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
         if (attendanceData.size === 0) {
             return interaction.reply({ content: '❌ ഇതുവരെ ആരും അറ്റൻഡൻസ് രേഖപ്പെടുത്തിയിട്ടില്ല.', ephemeral: true });
@@ -353,7 +341,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // --- 3. NAME CHANGE BUTTON CLICK HANDLERS ---
+    // --- 4. NAME CHANGE BUTTON CLICK HANDLERS ---
     if (interaction.customId === 'nc_apply_btn') {
         const modal = new ModalBuilder()
             .setCustomId('nc_modal_submit')
@@ -463,7 +451,7 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // --- 4. ATTENDANCE BUTTON CLICK HANDLER ---
+    // --- 5. ATTENDANCE BUTTON CLICK HANDLER ---
     if (interaction.customId === 'mark_attendance_btn') {
         const userId = interaction.user.id;
         const today = new Date().toISOString().split('T')[0];
@@ -501,7 +489,7 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // --- 5. TICKET SYSTEM HANDLERS ---
+    // --- 6. TICKET SYSTEM HANDLERS ---
     const userIsAdmin = hasAdminAccess(interaction.member);
 
     const configMap = {
@@ -618,12 +606,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         try {
-            // General Admin റോളിന്റെ View Channel പെർമിഷൻ നീക്കം ചെയ്യുന്നു
-            await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, {
-                ViewChannel: false
-            });
-
-            // ക്ലെയിം ചെയ്ത പ്രത്യേക അഡ്മിന് മാത്രം View Channel പെർമിഷൻ നൽകുന്നു
+            await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, { ViewChannel: false });
             await interaction.channel.permissionOverwrites.edit(interaction.user.id, {
                 ViewChannel: true,
                 SendMessages: true,
@@ -634,7 +617,7 @@ client.on('interactionCreate', async (interaction) => {
             meta.claimedBy = interaction.user.id;
             ticketMeta.set(interaction.channel.id, meta);
 
-            await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>! Now only <@${interaction.user.id}> and Server Administrators can view this channel.` });
+            await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>!` });
         } catch (err) {
             console.error('Claim Error:', err);
             await interaction.reply({ content: '❌ Failed to claim ticket. Check bot permissions.', ephemeral: true });
@@ -651,7 +634,6 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         try {
-            // Admin റോളിന് തിരികെ View Channel പെർമിഷൻ നൽകുന്നു
             await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, {
                 ViewChannel: true,
                 SendMessages: true,
@@ -662,11 +644,51 @@ client.on('interactionCreate', async (interaction) => {
             meta.claimedBy = null;
             ticketMeta.set(interaction.channel.id, meta);
 
-            await interaction.reply({ content: `⚠️ Ticket unclaimed! All admins can view this ticket again.` });
+            await interaction.reply({ content: `⚠️ Ticket unclaimed!` });
         } catch (err) {
             console.error('Unclaim Error:', err);
             await interaction.reply({ content: '❌ Failed to unclaim ticket.', ephemeral: true });
         }
+    }
+
+    // --- ADD USER BUTTON CLICK (Show Searchable User Menu) ---
+    if (interaction.customId === 'add_user_ticket') {
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can add users to tickets!**', ephemeral: true });
+
+        const userSelect = new UserSelectMenuBuilder()
+            .setCustomId('add_user_select')
+            .setPlaceholder('Select or Search a member to ADD...')
+            .setMinValues(1)
+            .setMaxValues(1);
+
+        const row = new ActionRowBuilder().addComponents(userSelect);
+
+        await interaction.reply({
+            content: '🔍 Search and select the user you want to add:',
+            components: [row],
+            ephemeral: true
+        });
+        return;
+    }
+
+    // --- REMOVE USER BUTTON CLICK (Show Searchable User Menu) ---
+    if (interaction.customId === 'remove_user_ticket') {
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can remove users from tickets!**', ephemeral: true });
+
+        const userSelect = new UserSelectMenuBuilder()
+            .setCustomId('remove_user_select')
+            .setPlaceholder('Select or Search a member to REMOVE...')
+            .setMinValues(1)
+            .setMaxValues(1);
+
+        const row = new ActionRowBuilder().addComponents(userSelect);
+
+        await interaction.reply({
+            content: '🔍 Search and select the user you want to remove:',
+            components: [row],
+            ephemeral: true
+        });
+        return;
     }
 
     if (interaction.customId === 'rename_ticket') {
@@ -681,36 +703,6 @@ client.on('interactionCreate', async (interaction) => {
             .setRequired(true);
 
         modal.addComponents(new ActionRowBuilder().addComponents(nameInput));
-        await interaction.showModal(modal);
-    }
-
-    if (interaction.customId === 'add_user_ticket') {
-        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can add users to tickets!**', ephemeral: true });
-
-        const modal = new ModalBuilder().setCustomId('add_user_modal').setTitle('Add User to Ticket');
-        const userInput = new TextInputBuilder()
-            .setCustomId('target_user_id')
-            .setLabel('User ID')
-            .setPlaceholder('Enter User ID to ADD')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true);
-
-        modal.addComponents(new ActionRowBuilder().addComponents(userInput));
-        await interaction.showModal(modal);
-    }
-
-    if (interaction.customId === 'remove_user_ticket') {
-        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can remove users from tickets!**', ephemeral: true });
-
-        const modal = new ModalBuilder().setCustomId('remove_user_modal').setTitle('Remove User from Ticket');
-        const userInput = new TextInputBuilder()
-            .setCustomId('remove_target_user_id')
-            .setLabel('User ID')
-            .setPlaceholder('Enter User ID to REMOVE')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true);
-
-        modal.addComponents(new ActionRowBuilder().addComponents(userInput));
         await interaction.showModal(modal);
     }
 
