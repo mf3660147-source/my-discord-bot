@@ -34,6 +34,7 @@ const NC_REJECT_LOG_CHANNEL_ID = '1544552097343873055'; // Rejected Log Channel
 const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
 
 // Roles
+const AUTO_JOIN_ROLE_ID = '1542503336484413460'; // ന്യൂ യൂസർ റോൾ ഐഡി
 const TICKET_STAFF_ROLE_ID = '1542813114012012554';
 const ADMIN_ROLE_ID = '1542813114012012554'; // Admin Role ID
 const FACTION_ROLE_ID = '1543941439451435158';
@@ -76,9 +77,10 @@ client.once('ready', async () => {
     }
 });
 
+// പുതിയ യൂസർ ജോയിൻ ചെയ്യുമ്പോൾ കൊടുക്കുന്ന റോൾ ഇവിടെ മാറ്റിയിട്ടുണ്ട്
 client.on('guildMemberAdd', async (member) => {
     try {
-        const role = member.guild.roles.cache.get(ADMIN_ROLE_ID);
+        const role = member.guild.roles.cache.get(AUTO_JOIN_ROLE_ID);
         if (role) await member.roles.add(role);
     } catch (err) {
         console.error('Auto-role Error:', err);
