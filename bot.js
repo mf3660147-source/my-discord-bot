@@ -20,7 +20,7 @@ const attendanceData = new Map(); // userId -> totalCount
 const dailyLogs = new Map(); // userId -> lastDate
 
 // ടിക്കറ്റ് ഓണറെ തിരിച്ചറിയാനും ടാസ്‌ക് ട്രാക്ക് ചെയ്യാനും
-const ticketMeta = new Map(); // channelId -> { ownerId, roleId }
+const ticketMeta = new Map(); // channelId -> { ownerId, roleId, claimedBy }
 let totalClosedTickets = 0; 
 
 // ---------------- CHANNEL & ROLE CONFIGURATIONS ----------------
@@ -35,7 +35,7 @@ const NC_REVIEW_CHANNEL_ID = '1544553053922005024';     // Staff Review Channel
 
 // Roles
 const TICKET_STAFF_ROLE_ID = '1542813114012012554';
-const ADMIN_ROLE_ID = '1542503336484413460'; // Admin Role ID
+const ADMIN_ROLE_ID = '1542813114012012554'; // Admin Role ID
 const FACTION_ROLE_ID = '1543941439451435158';
 const GANG_ROLE_ID = '1543941302423650396';
 
@@ -48,6 +48,12 @@ const CATEGORIES = {
     VIP: '1543445898875371600',
     ADMIN_APP: '1544379259525537922'
 };
+
+// അഡ്മിൻ പെർമിഷനോ അഡ്മിൻ റോളോ ഉണ്ടോ എന്ന് പരിശോധിക്കുന്ന ഫംഗ്ഷൻ
+function hasAdminAccess(member) {
+    if (!member) return false;
+    return member.permissions.has(PermissionFlagsBits.Administrator) || member.roles.cache.has(ADMIN_ROLE_ID);
+}
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
@@ -72,8 +78,7 @@ client.once('ready', async () => {
 
 client.on('guildMemberAdd', async (member) => {
     try {
-        const roleId = '1542503336484413460';
-        const role = member.guild.roles.cache.get(roleId);
+        const role = member.guild.roles.cache.get(ADMIN_ROLE_ID);
         if (role) await member.roles.add(role);
     } catch (err) {
         console.error('Auto-role Error:', err);
@@ -86,7 +91,7 @@ client.on('messageCreate', async (message) => {
     try {
         // --- NAME CHANGE PORTAL SETUP COMMAND ---
         if (message.content === '!setup-nc') {
-            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            if (!hasAdminAccess(message.member)) {
                 return message.reply('❌ Only admins can setup the Name Change Portal!');
             }
 
@@ -179,7 +184,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (message.content === '!setup-attendance') {
-            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            if (!hasAdminAccess(message.member)) {
                 return message.reply('❌ Only admins can setup attendance!');
             }
 
@@ -213,6 +218,10 @@ client.on('interactionCreate', async (interaction) => {
         
         // Add User Modal Submission
         if (interaction.customId === 'add_user_modal') {
+            if (!hasAdminAccess(interaction.member)) {
+                return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
+            }
+
             const userIdInput = interaction.fields.getTextInputValue('target_user_id').trim();
             try {
                 const targetMember = await interaction.guild.members.fetch(userIdInput).catch(() => null);
@@ -238,6 +247,10 @@ client.on('interactionCreate', async (interaction) => {
 
         // Remove User Modal Submission
         if (interaction.customId === 'remove_user_modal') {
+            if (!hasAdminAccess(interaction.member)) {
+                return await interaction.reply({ content: '❌ Only Admins can use this feature!', ephemeral: true });
+            }
+
             const userIdInput = interaction.fields.getTextInputValue('remove_target_user_id').trim();
             try {
                 const targetMember = await interaction.guild.members.fetch(userIdInput).catch(() => null);
@@ -262,28 +275,14 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.customId === 'rename_ticket_modal') {
+            if (!hasAdminAccess(interaction.member)) {
+                return await interaction.reply({ content: '❌ Only Admins can rename tickets!', ephemeral: true });
+            }
+
             const newName = interaction.fields.getTextInputValue('new_ticket_name');
             try {
                 await interaction.channel.setName(newName);
-
-                await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, {
-                    ViewChannel: true,
-                    SendMessages: true,
-                    AttachFiles: true,
-                    ReadMessageHistory: true
-                });
-
-                const meta = ticketMeta.get(interaction.channel.id);
-                if (meta && meta.roleId) {
-                    await interaction.channel.permissionOverwrites.edit(meta.roleId, {
-                        ViewChannel: true,
-                        SendMessages: true,
-                        AttachFiles: true,
-                        ReadMessageHistory: true
-                    });
-                }
-
-                await interaction.reply({ content: `✅ Ticket renamed to **${newName}**! All permissions preserved.`, ephemeral: true });
+                await interaction.reply({ content: `✅ Ticket renamed to **${newName}**!`, ephemeral: true });
             } catch (err) {
                 console.error('Rename Error:', err);
                 await interaction.reply({ content: '❌ Failed to rename channel. Check bot permissions.', ephemeral: true });
@@ -399,8 +398,9 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId.startsWith('nc_accept_')) {
-        const isAdminCheck = interaction.member.roles.cache.has(ADMIN_ROLE_ID);
-        if (!isAdminCheck) return await interaction.reply({ content: '❌ Only Admins can approve applications!', ephemeral: true });
+        if (!hasAdminAccess(interaction.member)) {
+            return await interaction.reply({ content: '❌ Only Admins can approve applications!', ephemeral: true });
+        }
 
         const parts = interaction.customId.split('_');
         const targetUserId = parts[2];
@@ -431,8 +431,9 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId.startsWith('nc_reject_')) {
-        const isAdminCheck = interaction.member.roles.cache.has(ADMIN_ROLE_ID);
-        if (!isAdminCheck) return await interaction.reply({ content: '❌ Only Admins can deny applications!', ephemeral: true });
+        if (!hasAdminAccess(interaction.member)) {
+            return await interaction.reply({ content: '❌ Only Admins can deny applications!', ephemeral: true });
+        }
 
         const parts = interaction.customId.split('_');
         const targetUserId = parts[2];
@@ -501,7 +502,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // --- 5. TICKET SYSTEM HANDLERS ---
-    const isAdmin = interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+    const userIsAdmin = hasAdminAccess(interaction.member);
 
     const configMap = {
         'ticket_frp': { name: 'FRP', categoryId: CATEGORIES.FRP, allowAdmin: true },
@@ -517,7 +518,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (selectedConfig) {
         try {
-            if (!isAdmin) {
+            if (!userIsAdmin) {
                 const userTickets = Array.from(ticketMeta.values()).filter(t => t.ownerId === interaction.user.id);
 
                 if (userTickets.length >= 2) {
@@ -572,7 +573,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const channel = await interaction.guild.channels.create(channelOptions);
-            ticketMeta.set(channel.id, { ownerId: interaction.user.id, roleId: selectedConfig.specificRoleId || null });
+            ticketMeta.set(channel.id, { ownerId: interaction.user.id, roleId: selectedConfig.specificRoleId || null, claimedBy: null });
 
             const ticketEmbed = new EmbedBuilder()
                 .setColor('#E6A100')
@@ -607,18 +608,69 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
+    // --- CLAIM TICKET HANDLER ---
     if (interaction.customId === 'claim_ticket') {
-        if (!isAdmin) return await interaction.reply({ content: '❌ **Only Admins can claim tickets!**', ephemeral: true });
-        await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>!` });
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can claim tickets!**', ephemeral: true });
+
+        const meta = ticketMeta.get(interaction.channel.id) || {};
+        if (meta.claimedBy) {
+            return await interaction.reply({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>!`, ephemeral: true });
+        }
+
+        try {
+            // General Admin റോളിന്റെ View Channel പെർമിഷൻ നീക്കം ചെയ്യുന്നു
+            await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, {
+                ViewChannel: false
+            });
+
+            // ക്ലെയിം ചെയ്ത പ്രത്യേക അഡ്മിന് മാത്രം View Channel പെർമിഷൻ നൽകുന്നു
+            await interaction.channel.permissionOverwrites.edit(interaction.user.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true,
+                ReadMessageHistory: true
+            });
+
+            meta.claimedBy = interaction.user.id;
+            ticketMeta.set(interaction.channel.id, meta);
+
+            await interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>! Now only <@${interaction.user.id}> and Server Administrators can view this channel.` });
+        } catch (err) {
+            console.error('Claim Error:', err);
+            await interaction.reply({ content: '❌ Failed to claim ticket. Check bot permissions.', ephemeral: true });
+        }
     }
 
+    // --- UNCLAIM TICKET HANDLER ---
     if (interaction.customId === 'unclaim_ticket') {
-        if (!isAdmin) return await interaction.reply({ content: '❌ **Only Admins can unclaim tickets!**', ephemeral: true });
-        await interaction.reply({ content: `⚠️ Ticket unclaimed!` });
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can unclaim tickets!**', ephemeral: true });
+
+        const meta = ticketMeta.get(interaction.channel.id) || {};
+        if (!meta.claimedBy) {
+            return await interaction.reply({ content: '❌ This ticket is not claimed yet!', ephemeral: true });
+        }
+
+        try {
+            // Admin റോളിന് തിരികെ View Channel പെർമിഷൻ നൽകുന്നു
+            await interaction.channel.permissionOverwrites.edit(ADMIN_ROLE_ID, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true,
+                ReadMessageHistory: true
+            });
+
+            meta.claimedBy = null;
+            ticketMeta.set(interaction.channel.id, meta);
+
+            await interaction.reply({ content: `⚠️ Ticket unclaimed! All admins can view this ticket again.` });
+        } catch (err) {
+            console.error('Unclaim Error:', err);
+            await interaction.reply({ content: '❌ Failed to unclaim ticket.', ephemeral: true });
+        }
     }
 
     if (interaction.customId === 'rename_ticket') {
-        if (!isAdmin) return await interaction.reply({ content: '❌ **Only Admins can rename tickets!**', ephemeral: true });
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can rename tickets!**', ephemeral: true });
 
         const modal = new ModalBuilder().setCustomId('rename_ticket_modal').setTitle('Rename Ticket');
         const nameInput = new TextInputBuilder()
@@ -633,7 +685,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'add_user_ticket') {
-        if (!isAdmin) return await interaction.reply({ content: '❌ **Only Admins can add users to tickets!**', ephemeral: true });
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can add users to tickets!**', ephemeral: true });
 
         const modal = new ModalBuilder().setCustomId('add_user_modal').setTitle('Add User to Ticket');
         const userInput = new TextInputBuilder()
@@ -648,7 +700,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'remove_user_ticket') {
-        if (!isAdmin) return await interaction.reply({ content: '❌ **Only Admins can remove users from tickets!**', ephemeral: true });
+        if (!userIsAdmin) return await interaction.reply({ content: '❌ **Only Admins can remove users from tickets!**', ephemeral: true });
 
         const modal = new ModalBuilder().setCustomId('remove_user_modal').setTitle('Remove User from Ticket');
         const userInput = new TextInputBuilder()
@@ -663,7 +715,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'close_ticket') {
-        if (!isAdmin) {
+        if (!userIsAdmin) {
             return await interaction.reply({ 
                 content: '❌ **Only Admins can close this ticket.**', 
                 ephemeral: true 
