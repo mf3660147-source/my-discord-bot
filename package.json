@@ -5,7 +5,9 @@
   "dependencies": {
     "discord-html-transcripts": "^3.2.0",
     "discord.js": "^14.14.1",
-    "express": "^4.18.2"
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "mysql2": "^3.11.0"
   },
   "scripts": {
     "start": "node bot.js"

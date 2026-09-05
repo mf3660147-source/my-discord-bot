@@ -1,6 +1,22 @@
+require('dotenv').config();
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes, UserSelectMenuBuilder } = require('discord.js');
 const express = require('express');
 const discordTranscripts = require('discord-html-transcripts');
+const mysql = require('mysql2/promise');
+
+// ---------------- MySQL DATABASE CONNECTION POOL ----------------
+const db = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+    port: parseInt(process.env.DB_PORT) || 3306,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000
+});
 
 const app = express();
 app.get('/', (req, res) => res.send('ONE PEACE ROLEPLAY Bot is Online!'));
@@ -40,6 +56,12 @@ const ADMIN_ROLE_ID = '1542813114012012554'; // Admin Role ID
 const FACTION_ROLE_ID = '1543941439451435158';
 const GANG_ROLE_ID = '1543941302423650396';
 
+// Passport / IG Name Verification
+const PASSPORT_INPUT_CHANNEL_ID = '1542732385542606908';  // Channel where citizens post their IG name
+const PASSPORT_LOG_CHANNEL_ID = '1545117305967738990';    // Channel where approval is posted
+const CITIZEN_ROLE_ID = '1542720207192195132';             // Role required to submit IG name
+const PASSPORT_APPROVED_ROLE_ID = '1542216459520835603';   // Role given after approval
+
 const CATEGORIES = {
     FRP: '1543445649520070787',
     GANG_FRP: '1543445685066666115',
@@ -58,6 +80,14 @@ function hasAdminAccess(member) {
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}! Bot is ONLINE!`);
+
+    // Test MySQL database connection
+    try {
+        const [rows] = await db.query('SELECT 1');
+        console.log('✅ MySQL Database connected successfully!');
+    } catch (dbErr) {
+        console.error('❌ MySQL Database connection failed:', dbErr.message);
+    }
 
     const commands = [
         new SlashCommandBuilder()
@@ -206,6 +236,77 @@ client.on('messageCreate', async (message) => {
 
             await message.channel.send({ embeds: [embed], components: [row] });
             await message.delete().catch(() => {});
+        }
+
+        // --- PASSPORT / IG NAME VERIFICATION SYSTEM ---
+        if (message.channel.id === PASSPORT_INPUT_CHANNEL_ID) {
+            // Only citizens with the required role can use this
+            if (!message.member.roles.cache.has(CITIZEN_ROLE_ID)) return;
+
+            const igName = message.content.trim();
+
+            // Strict name format validation: Firstname_Lastname (uppercase start, letters only, no numbers/symbols)
+            const nameRegex = /^[A-Z][a-z]+_[A-Z][a-z]+$/;
+            if (!igName || !nameRegex.test(igName)) {
+                await message.react('❌');
+                return message.reply('❌ Invalid name format!\n\n✅ Correct: `Oggy_Ftw`, `Itz_Thor`\n❌ Wrong: `oggy_ftw`, `OGGY_FTW`, `Oggy123_Ftw`, `Oggy Ftw`\n\nName must be **Firstname_Lastname** — each part starting with a **capital letter**, **letters only**, no numbers or symbols.');
+            }
+
+            try {
+                const [rows] = await db.query('SELECT username, locked FROM users WHERE username = ?', [igName]);
+
+                if (rows.length === 0) {
+                    // Account not found in the database
+                    await message.react('⚠️');
+                    return message.reply(`⚠️ **${igName}** is not registered in-game. Please register first!`);
+                }
+
+                const user = rows[0];
+
+                if (user.locked === 0) {
+                    // Account exists but locked is 0 — already used/taken
+                    await message.react('🔒');
+                    return message.reply(`🔒 **${igName}** is already in use. If this is your account, contact staff.`);
+                }
+
+                // locked === 1 → Approve: set locked to 0
+                await db.query('UPDATE users SET locked = 0 WHERE username = ?', [igName]);
+
+                // Give the approved role
+                const approvedRole = message.guild.roles.cache.get(PASSPORT_APPROVED_ROLE_ID);
+                if (approvedRole) {
+                    await message.member.roles.add(approvedRole).catch(err => console.error('Role Add Error:', err));
+                }
+
+                // Set nickname to IG name
+                await message.member.setNickname(igName).catch(err => console.error('Nickname Error:', err));
+
+                // React with checkmark
+                await message.react('✅');
+
+                // Post approval to the log channel
+                const logChannel = await message.guild.channels.fetch(PASSPORT_LOG_CHANNEL_ID).catch(() => null);
+                if (logChannel) {
+                    const approvalEmbed = new EmbedBuilder()
+                        .setTitle('✅ Passport Approved')
+                        .setColor('#22c55e')
+                        .addFields(
+                            { name: '👤 Discord User', value: `<@${message.author.id}>`, inline: true },
+                            { name: '🎮 IG Name', value: `\`${igName}\``, inline: true }
+                        )
+                        .setFooter({ text: 'ONE PEACE ROLEPLAY • Passport System' })
+                        .setTimestamp();
+
+                    await logChannel.send({
+                        content: `<@${message.author.id}> your passport has been approved! Enjoy your RP 🎉`,
+                        embeds: [approvalEmbed]
+                    });
+                }
+
+            } catch (dbErr) {
+                console.error('Passport DB Error:', dbErr);
+                await message.reply('❌ An error occurred while verifying your IG name. Please try again later.');
+            }
         }
 
     } catch (err) {
