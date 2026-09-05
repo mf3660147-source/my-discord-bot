@@ -272,10 +272,14 @@ client.on('messageCreate', async (message) => {
                 // locked === 1 → Approve: set locked to 0
                 await db.query('UPDATE users SET locked = 0 WHERE username = ?', [igName]);
 
-                // Give the approved role
+                // Give the approved role and remove citizen role
                 const approvedRole = message.guild.roles.cache.get(PASSPORT_APPROVED_ROLE_ID);
                 if (approvedRole) {
                     await message.member.roles.add(approvedRole).catch(err => console.error('Role Add Error:', err));
+                }
+                const citizenRole = message.guild.roles.cache.get(CITIZEN_ROLE_ID);
+                if (citizenRole) {
+                    await message.member.roles.remove(citizenRole).catch(err => console.error('Role Remove Error:', err));
                 }
 
                 // Set nickname to IG name
