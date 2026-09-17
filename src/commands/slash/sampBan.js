@@ -5,10 +5,10 @@ const { SAMP_BAN_LOG_CHANNEL_ID, SAMP_UNBAN_LOG_CHANNEL_ID } = require('../../co
 
 function parseDuration(value) {
     if (value === 'permanent') return null;
-    const match = /^(\\d+)(h|d)$/.exec(value);
+    const match = /^(\d+)\s*(m|h|d)$/.exec(String(value).trim().toLowerCase());
     if (!match) return undefined;
     const amount = Number(match[1]);
-    const unit = match[2] === 'h' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const unit = match[2] === 'm' ? 60 * 1000 : (match[2] === 'h' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
     return new Date(Date.now() + amount * unit);
 }
 
@@ -35,7 +35,8 @@ async function handleSampBan(interaction) {
 
     const username = interaction.options.getString('player').trim();
     const reason = interaction.options.getString('reason').trim();
-    const duration = interaction.options.getString('duration');
+    const duration = interaction.options.getString('duration').trim();
+    const ticketNumber = interaction.options.getString('ticket').trim();
     const expires = parseDuration(duration);
 
     if (expires === undefined) {
@@ -43,8 +44,9 @@ async function handleSampBan(interaction) {
     }
 
     try {
+        // BINARY makes the username comparison case-sensitive.
         const [users] = await db.execute(
-            'SELECT username, ip FROM users WHERE username = ? LIMIT 1',
+            'SELECT username, ip FROM users WHERE BINARY username = BINARY ? LIMIT 1',
             [username]
         );
 
@@ -53,15 +55,18 @@ async function handleSampBan(interaction) {
         }
 
         const user = users[0];
+        if (user.username !== username) {
+            return interaction.reply({ content: 'Username must match the database username exactly, including capital letters and underscores.', ephemeral: true });
+        }
         const permanent = expires === null ? 1 : 0;
         const expirySql = sqlDate(expires);
 
         await db.execute(
-            `INSERT INTO bans (username, ip, bannedby, date, reason, permanent, expires_at)
-             VALUES (?, ?, ?, NOW(), ?, ?, ?)
-             ON DUPLICATE KEY UPDATE reason = VALUES(reason), bannedby = VALUES(bannedby),
+            `INSERT INTO bans (username, ip, bannedby, date, reason, ticket_number, permanent, expires_at)
+             VALUES (?, ?, ?, NOW(), ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE reason = VALUES(reason), ticket_number = VALUES(ticket_number), bannedby = VALUES(bannedby),
              permanent = VALUES(permanent), expires_at = VALUES(expires_at), date = NOW()`,
-            [user.username, user.ip || 'n/a', interaction.user.tag, reason, permanent, expirySql]
+            [user.username, user.ip || 'n/a', interaction.user.tag, reason, ticketNumber, permanent, expirySql]
         );
 
         const expiryText = expires ? `<t:${Math.floor(expires.getTime() / 1000)}:F>` : 'Permanent';
@@ -69,12 +74,12 @@ async function handleSampBan(interaction) {
             interaction,
             SAMP_BAN_LOG_CHANNEL_ID,
             'SAMP Ban Activity',
-            `**Player:** ${user.username}\n**IP:** ${user.ip || 'n/a'}\n**Admin:** ${interaction.user.tag}\n**Reason:** ${reason}\n**Expires:** ${expiryText}`,
+            `**Player:** ${user.username}\n**IP:** ${user.ip || 'n/a'}\n**Admin:** ${interaction.user.tag}\n**Ticket:** ${ticketNumber}\n**Reason:** ${reason}\n**Expires:** ${expiryText}`,
             0xE74C3C
         );
 
         return interaction.reply({
-            content: `✅ **${user.username}** was added to the SAMP ban database. Expiry: **${expires ? expires.toISOString() : 'Permanent'}**.`,
+            content: `✅ **${user.username}** was added to the SAMP ban database.\nTicket: **${ticketNumber}**\nExpiry: **${expires ? expires.toISOString() : 'Permanent'}**.`,
             ephemeral: true
         });
     } catch (error) {
