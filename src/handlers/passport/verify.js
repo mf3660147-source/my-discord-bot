@@ -41,7 +41,7 @@ async function getAvatarImage(message) {
 }
 
 function createFlightNumber() {
-    return `OPRP-${Math.floor(1000 + Math.random() * 9000)}`;
+    return `OPRP-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
 }
 
 async function createPassportImage(message, igName) {
@@ -94,6 +94,7 @@ async function sendPassportToLog(message, passportBuffer) {
     if (!logChannel || !logChannel.isTextBased()) return;
 
     await logChannel.send({
+        content: `🎉 Welcome to OPRP, <@${message.author.id}>! Your passport has been approved.`,
         files: [{ attachment: passportBuffer, name: 'oprp_passport.png' }]
     });
 }
