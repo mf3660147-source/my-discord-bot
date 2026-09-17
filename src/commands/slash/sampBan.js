@@ -63,6 +63,7 @@ async function handleSampBan(interaction) {
         }
 
         const user = users[0];
+        const bannedAt = new Date();
         if (user.username !== username) {
             return interaction.reply({ content: 'Username must match the database username exactly, including capital letters and underscores.', ephemeral: true });
         }
@@ -77,17 +78,18 @@ async function handleSampBan(interaction) {
             [user.username, user.ip || 'n/a', interaction.user.tag, reason, ticketNumber, permanent, expirySql]
         );
 
+        const bannedAtText = `<t:${Math.floor(bannedAt.getTime() / 1000)}:F>`;
         const expiryText = expires ? `<t:${Math.floor(expires.getTime() / 1000)}:F>` : 'Permanent';
         await sendLog(
             interaction,
             SAMP_BAN_LOG_CHANNEL_ID,
             'SAMP Ban Activity',
-            `**Player:** ${user.username}\n**IP:** ${user.ip || 'n/a'}\n**Admin:** ${interaction.user.tag}\n**Ticket:** ${ticketNumber}\n**Reason:** ${reason}\n**Expires:** ${expiryText}`,
+            `**Player:** ${user.username}\n**Admin:** ${interaction.user.tag}\n**Ticket:** ${ticketNumber}\n**Reason:** ${reason}\n**Banned At:** ${bannedAtText}\n**Expires:** ${expiryText}`,
             0xE74C3C
         );
 
         return interaction.reply({
-            content: `✅ **${user.username}** was added to the SAMP ban database.\nTicket: **${ticketNumber}**\nExpiry: **${expires ? expires.toISOString() : 'Permanent'}**.`,
+            content: `✅ **${user.username}** was added to the SAMP ban database.\nTicket: **${ticketNumber}**\nBanned At: **${bannedAt.toISOString()}**\nExpiry: **${expires ? expires.toISOString() : 'Permanent'}**.`,
             ephemeral: true
         });
     } catch (error) {
@@ -110,11 +112,12 @@ async function handleSampUnban(interaction) {
             return interaction.reply({ content: `No active ban found for **${username}**.`, ephemeral: true });
         }
 
+        const unbannedAtText = `<t:${Math.floor(Date.now() / 1000)}:F>`;
         await sendLog(
             interaction,
             SAMP_UNBAN_LOG_CHANNEL_ID,
             'SAMP Unban Activity',
-            `**Player:** ${username}\n**Admin:** ${interaction.user.tag}\n**Reason:** ${reason}`,
+            `**Player:** ${username}\n**Unban Admin:** ${interaction.user.tag}\n**Unban Reason:** ${reason}\n**Unbanned At:** ${unbannedAtText}`,
             0x2ECC71
         );
 
@@ -125,20 +128,51 @@ async function handleSampUnban(interaction) {
     }
 }
 
-async function removeExpiredBans() {
+async function removeExpiredBans(client) {
     try {
-        const [result] = await db.execute(
+        // Read expired bans first so each automatic unban can be logged with its details.
+        const [expiredBans] = await db.execute(
+            `SELECT username, bannedby, reason, ticket_number, date, expires_at
+             FROM bans
+             WHERE permanent = 0 AND expires_at IS NOT NULL AND expires_at <= NOW()`
+        );
+
+        if (!expiredBans.length) return;
+
+        await db.execute(
             'DELETE FROM bans WHERE permanent = 0 AND expires_at IS NOT NULL AND expires_at <= NOW()'
         );
-        if (result.affectedRows) console.log(`Auto-unbanned ${result.affectedRows} expired SAMP ban(s).`);
+
+        for (const ban of expiredBans) {
+            const unbannedAtText = `<t:${Math.floor(Date.now() / 1000)}:F>`;
+
+            if (client) {
+                const channel = await client.channels.fetch(SAMP_UNBAN_LOG_CHANNEL_ID).catch(() => null);
+                if (channel && channel.isTextBased()) {
+                    const embed = new EmbedBuilder()
+                        .setTitle('Automatic SAMP Unban (Expiry)')
+                        .setDescription(
+                            `**Player:** ${ban.username}\n` +
+                            `**Unban Admin:** BOT\n` +
+                            `**Unban Reason:** Automatic Expiry\n` +
+                            `**Unbanned At:** ${unbannedAtText}`
+                        )
+                        .setColor(0x2ECC71)
+                        .setTimestamp();
+                    await channel.send({ embeds: [embed] }).catch(console.error);
+                }
+            }
+
+            console.log(`Auto-unbanned expired SAMP ban for ${ban.username}.`);
+        }
     } catch (error) {
         console.error('Automatic SAMP unban error:', error.message);
     }
 }
 
-function startExpiryWorker() {
-    removeExpiredBans();
-    setInterval(removeExpiredBans, 60 * 1000);
+function startExpiryWorker(client) {
+    removeExpiredBans(client);
+    setInterval(() => removeExpiredBans(client), 60 * 1000);
 }
 
 module.exports = { handleSampBan, handleSampUnban, startExpiryWorker };
