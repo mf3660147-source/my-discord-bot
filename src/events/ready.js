@@ -25,15 +25,10 @@ module.exports = function (client) {
                 .setDescription('Ban a SAMP player through the database')
                 .addStringOption(o => o.setName('player').setDescription('Exact in-game username').setRequired(true))
                 .addStringOption(o => o.setName('reason').setDescription('Ban reason').setRequired(true))
-                .addStringOption(o => o.setName('duration').setDescription('Ban duration').setRequired(true)
-                    .addChoices(
-                        { name: '1 hour', value: '1h' },
-                        { name: '6 hours', value: '6h' },
-                        { name: '1 day', value: '1d' },
-                        { name: '7 days', value: '7d' },
-                        { name: '30 days', value: '30d' },
-                        { name: 'Permanent', value: 'permanent' }
-                    )),
+                .addStringOption(o => o.setName('ticket').setDescription('Ticket number/reference').setRequired(true))
+                .addIntegerOption(o => o.setName('days').setDescription('Ban duration in days (use 0 if not needed)').setMinValue(0).setRequired(true))
+                .addIntegerOption(o => o.setName('hours').setDescription('Ban duration in hours (use 0 if not needed)').setMinValue(0).setRequired(true))
+                .addIntegerOption(o => o.setName('minutes').setDescription('Ban duration in minutes (use 0 if not needed)').setMinValue(0).setRequired(true)),
             new SlashCommandBuilder()
                 .setName('sampunban')
                 .setDescription('Remove a SAMP player ban')
@@ -41,13 +36,18 @@ module.exports = function (client) {
                 .addStringOption(o => o.setName('reason').setDescription('Unban reason').setRequired(false))
         ];
 
+        if (!process.env.GUILD_ID) {
+            console.error('❌ GUILD_ID is missing. Add CLIENT_ID and GUILD_ID in Render Environment Variables.');
+            return;
+        }
+
         const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
         try {
             await rest.put(
-                Routes.applicationCommands(client.user.id),
+                Routes.applicationGuildCommands(process.env.CLIENT_ID || client.user.id, process.env.GUILD_ID),
                 { body: commands }
             );
-            console.log('Attendance Slash commands registered successfully!');
+            console.log('✅ Guild slash commands registered successfully (separate days, hours, and minutes inputs enabled)!');
         } catch (error) {
             console.error('Slash Command Error:', error);
         }
