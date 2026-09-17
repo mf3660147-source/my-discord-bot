@@ -10,6 +10,7 @@ const handleMarkAttendance = require('../handlers/attendance/markAttendance');
 const handleCreateTicket = require('../handlers/tickets/createTicket');
 const { handleClaimTicket } = require('../handlers/tickets/claimTicket');
 const handleCloseTicket = require('../handlers/tickets/closeTicket');
+const { handleSampBan, handleSampUnban } = require('../commands/slash/sampBan');
 
 module.exports = function (client) {
     client.on('interactionCreate', async (interaction) => {
@@ -35,8 +36,10 @@ module.exports = function (client) {
         }
 
         // --- 3. SLASH COMMAND HANDLER ---
-        if (interaction.isChatInputCommand() && interaction.commandName === 'attendance-leaderboard') {
-            return await handleAttendanceLeaderboard(interaction);
+        if (interaction.isChatInputCommand()) {
+            if (interaction.commandName === 'attendance-leaderboard') return await handleAttendanceLeaderboard(interaction);
+            if (interaction.commandName === 'sampban') return await handleSampBan(interaction);
+            if (interaction.commandName === 'sampunban') return await handleSampUnban(interaction);
         }
 
         if (!interaction.isButton()) return;
