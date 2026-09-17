@@ -3,13 +3,19 @@ const db = require('../../config/database');
 const { hasAdminAccess } = require('../../utils/permissions');
 const { SAMP_BAN_LOG_CHANNEL_ID, SAMP_UNBAN_LOG_CHANNEL_ID } = require('../../config/constants');
 
-function parseDuration(value) {
-    if (value === 'permanent') return null;
-    const match = /^(\d+)\s*(m|h|d)$/.exec(String(value).trim().toLowerCase());
-    if (!match) return undefined;
-    const amount = Number(match[1]);
-    const unit = match[2] === 'm' ? 60 * 1000 : (match[2] === 'h' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
-    return new Date(Date.now() + amount * unit);
+function parseDurationParts(days, hours, minutes) {
+    const d = Number(days);
+    const h = Number(hours);
+    const m = Number(minutes);
+
+    if (![d, h, m].every(Number.isInteger) || d < 0 || h < 0 || m < 0) {
+        return undefined;
+    }
+
+    const totalMinutes = (d * 24 * 60) + (h * 60) + m;
+    if (totalMinutes <= 0) return undefined;
+
+    return new Date(Date.now() + totalMinutes * 60 * 1000);
 }
 
 function sqlDate(date) {
@@ -35,12 +41,14 @@ async function handleSampBan(interaction) {
 
     const username = interaction.options.getString('player').trim();
     const reason = interaction.options.getString('reason').trim();
-    const duration = interaction.options.getString('duration').trim();
     const ticketNumber = interaction.options.getString('ticket').trim();
-    const expires = parseDuration(duration);
+    const days = interaction.options.getInteger('days');
+    const hours = interaction.options.getInteger('hours');
+    const minutes = interaction.options.getInteger('minutes');
+    const expires = parseDurationParts(days, hours, minutes);
 
     if (expires === undefined) {
-        return interaction.reply({ content: 'Invalid duration.', ephemeral: true });
+        return interaction.reply({ content: 'Invalid duration. Enter a total duration greater than 0 using days, hours, or minutes.', ephemeral: true });
     }
 
     try {
