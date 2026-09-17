@@ -14,7 +14,7 @@ module.exports = function (client) {
             console.error('❌ MySQL Database connection failed:', dbErr.message);
         }
 
-        startExpiryWorker();
+        startExpiryWorker(client);
 
         const commands = [
             new SlashCommandBuilder()
@@ -41,13 +41,27 @@ module.exports = function (client) {
             return;
         }
 
+        const applicationId = process.env.CLIENT_ID || client.user.id;
         const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
         try {
+            // Remove only old GLOBAL sampban/sampunban commands.
+            // Other existing global commands are preserved.
+            const globalCommands = await rest.get(Routes.applicationCommands(applicationId));
+            for (const command of globalCommands) {
+                if (command.name === 'sampban' || command.name === 'sampunban') {
+                    await rest.delete(Routes.applicationCommand(applicationId, command.id));
+                    console.log(`🧹 Removed old global command: /${command.name}`);
+                }
+            }
+
+            // Register the current command list in this server.
+            // Guild registration replaces old duplicate guild commands.
             await rest.put(
-                Routes.applicationGuildCommands(process.env.CLIENT_ID || client.user.id, process.env.GUILD_ID),
+                Routes.applicationGuildCommands(applicationId, process.env.GUILD_ID),
                 { body: commands }
             );
-            console.log('✅ Guild slash commands registered successfully (separate days, hours, and minutes inputs enabled)!');
+            console.log('✅ Guild slash commands registered: /sampban and /sampunban');
+            console.log('ℹ️ Ban logs include the admin who used the command.');
         } catch (error) {
             console.error('Slash Command Error:', error);
         }
