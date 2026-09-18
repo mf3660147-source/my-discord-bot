@@ -11,6 +11,7 @@ const handleCreateTicket = require('../handlers/tickets/createTicket');
 const { handleClaimTicket } = require('../handlers/tickets/claimTicket');
 const handleCloseTicket = require('../handlers/tickets/closeTicket');
 const { handleSampBan, handleSampUnban } = require('../commands/slash/sampBan');
+const handleSelfNameChange = require('../commands/slash/changeNameSelf');
 
 module.exports = function (client) {
     client.on('interactionCreate', async (interaction) => {
@@ -40,6 +41,7 @@ module.exports = function (client) {
             if (interaction.commandName === 'attendance-leaderboard') return await handleAttendanceLeaderboard(interaction);
             if (interaction.commandName === 'sampban') return await handleSampBan(interaction);
             if (interaction.commandName === 'sampunban') return await handleSampUnban(interaction);
+            if (interaction.commandName === 'changename') return await handleSelfNameChange(interaction);
         }
 
         if (!interaction.isButton()) return;
