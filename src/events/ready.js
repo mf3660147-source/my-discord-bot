@@ -33,7 +33,15 @@ module.exports = function (client) {
                 .setName('sampunban')
                 .setDescription('Remove a SAMP player ban')
                 .addStringOption(o => o.setName('player').setDescription('Exact in-game username').setRequired(true))
-                .addStringOption(o => o.setName('reason').setDescription('Unban reason').setRequired(false))
+                .addStringOption(o => o.setName('reason').setDescription('Unban reason').setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('changename')
+                .setDescription('Change your own in-game name')
+                .addStringOption(o =>
+                o.setName('new_name')
+                .setDescription('New name (Firstname_Lastname)')
+                .setRequired(true)
+    )
         ];
 
         if (!process.env.GUILD_ID) {
