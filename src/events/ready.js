@@ -37,6 +37,7 @@ module.exports = function (client) {
             new SlashCommandBuilder()
                 .setName('changename')
                 .setDescription('Change your own in-game name')
+                .setDefaultMemberPermissions(null)
                 .addStringOption(o =>
                 o.setName('new_name')
                 .setDescription('New name (Firstname_Lastname)')
