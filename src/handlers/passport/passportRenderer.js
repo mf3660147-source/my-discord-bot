@@ -13,7 +13,7 @@ function flightNumber() {
   return `OPRP-${crypto.randomInt(1000, 10000)}`;
 }
 
-async function renderPassport({ name, flight, photoPath = null, qrUrl = null }) {
+async function renderPassport({ name, flight, photoPath = null, photoBuffer = null, qrUrl = null }) {
   const composites = [];
   const svg = Buffer.from(`<svg width="1536" height="848" xmlns="http://www.w3.org/2000/svg">
     <style>.name{font-family:Arial,sans-serif;font-weight:700;fill:#fff}.flight{font-family:Arial,sans-serif;font-weight:700;fill:#fff;font-size:25px}</style>
@@ -24,8 +24,9 @@ async function renderPassport({ name, flight, photoPath = null, qrUrl = null }) 
   </svg>`);
   composites.push({ input: svg, top: 0, left: 0 });
 
-  if (photoPath) {
-    const photo = await sharp(photoPath).resize(190, 205, { fit: 'cover' }).png().toBuffer();
+  if (photoPath || photoBuffer) {
+    const source = photoBuffer || photoPath;
+    const photo = await sharp(source).resize(190, 205, { fit: 'cover', position: 'centre' }).png().toBuffer();
     composites.push({ input: photo, top: 283, left: 67 });
   }
 

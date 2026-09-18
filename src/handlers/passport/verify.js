@@ -1,11 +1,23 @@
 const crypto = require('crypto');
-const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { AttachmentBuilder } = require('discord.js');
 const db = require('../../config/database');
 const { CITIZEN_ROLE_ID, PASSPORT_APPROVED_ROLE_ID, PASSPORT_LOG_CHANNEL_ID } = require('../../config/constants');
 const { renderPassport, flightNumber } = require('./passportRenderer');
 
 const BASE_URL = (process.env.VERIFICATION_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
+
+async function downloadAvatar(user) {
+  try {
+    const url = user.displayAvatarURL({ extension: 'png', size: 256, forceStatic: true });
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Avatar download failed: ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    console.error('Avatar download error:', error);
+    return null;
+  }
+}
 
 module.exports = async function handlePassportVerify(message) {
   if (!message.member.roles.cache.has(CITIZEN_ROLE_ID)) return;
@@ -38,9 +50,12 @@ module.exports = async function handlePassportVerify(message) {
       [message.author.id, igName, flight, tokenHash]
     );
 
-    const qrUrl = `${BASE_URL}/verify?flight=${encodeURIComponent(flight)}&token=${encodeURIComponent(token)}`;
-    const image = await renderPassport({ name: igName, flight, qrUrl });
-    const logImage = await renderPassport({ name: igName, flight });
+    const qrUrl = BASE_URL
+      ? `${BASE_URL}/verify?flight=${encodeURIComponent(flight)}&token=${encodeURIComponent(token)}`
+      : null;
+    const photoBuffer = await downloadAvatar(message.author);
+    const image = await renderPassport({ name: igName, flight, photoBuffer, qrUrl });
+    const logImage = await renderPassport({ name: igName, flight, photoBuffer });
     const dmAttachment = new AttachmentBuilder(image, { name: `passport-${flight}.png` });
     const logAttachment = new AttachmentBuilder(logImage, { name: `passport-${flight}-log.png` });
 
@@ -57,13 +72,11 @@ module.exports = async function handlePassportVerify(message) {
 
     const logChannel = await message.guild.channels.fetch(PASSPORT_LOG_CHANNEL_ID).catch(() => null);
     if (logChannel) {
-      const embed = new EmbedBuilder().setTitle('✅ Passport Approved').setColor('#22c55e')
-        .addFields(
-          { name: '👤 Discord User', value: `<@${message.author.id}>`, inline: true },
-          { name: '🎮 IG Name', value: `\`${igName}\``, inline: true },
-          { name: '✈️ Flight Number', value: `\`${flight}\``, inline: true }
-        ).setFooter({ text: 'OPRP • Passport System' }).setTimestamp();
-      await logChannel.send({ embeds: [embed], files: [logAttachment] });
+      await logChannel.send({
+        content: `🎉 Welcome <@${message.author.id}> to OPRP City!\n✅ Your passport has been approved.\n🎮 IG Name: \`${igName}\`\n✈️ Flight Number: \`${flight}\``,
+        files: [logAttachment],
+        allowedMentions: { users: [message.author.id] }
+      });
     }
     await message.react('✅');
   } catch (err) {
