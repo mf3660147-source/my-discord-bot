@@ -28,6 +28,10 @@ module.exports = function (client) {
                 .addStringOption(o => o.setName('duration').setDescription('Type duration manually: 30m, 2h, 15d, or permanent').setRequired(true))
                 .addStringOption(o => o.setName('ticket').setDescription('Ticket number/reference').setRequired(true)),
             new SlashCommandBuilder()
+                .setName('changename')
+                .setDescription('Change your own linked in-game name')
+                .addStringOption(o => o.setName('new_name').setDescription('New Firstname_Lastname') .setRequired(true)),
+            new SlashCommandBuilder()
                 .setName('sampunban')
                 .setDescription('Remove a SAMP player ban')
                 .addStringOption(o => o.setName('player').setDescription('Exact in-game username').setRequired(true))
